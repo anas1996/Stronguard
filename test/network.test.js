@@ -301,3 +301,52 @@ test('dashboard: API works locally, rejects rebinding hosts and foreign origins'
   assert.equal(check.blocked, true);
   dash.stop();
 });
+
+// ---------------------------------------------------------------------------
+// List downloader
+
+test('list downloader: mirror failover, redirects, gzip, 304 revalidation, stale cache', async () => {
+  const zlib = await import('node:zlib');
+  const { loadList } = await import('../network/lists.js');
+  const LIST = '! Title: test\n||ads.example^\n||more.example^\n';
+  let notModified = false;
+  const srv = http.createServer((req, res) => {
+    if (req.url === '/error') {
+      // Error status with a large body that the client never reads.
+      res.writeHead(503, { 'Content-Type': 'text/html' });
+      res.end('x'.repeat(2 * 1024 * 1024));
+    } else if (req.url === '/redirect') {
+      res.writeHead(302, { Location: '/list' }).end();
+    } else if (req.url === '/html') {
+      res.writeHead(200, { 'Content-Type': 'text/html' }).end('<!DOCTYPE html><title>challenge</title>');
+    } else if (req.url === '/list') {
+      if (notModified && req.headers['if-none-match'] === '"v1"') return void res.writeHead(304).end();
+      res.writeHead(200, { 'Content-Encoding': 'gzip', ETag: '"v1"' });
+      res.end(zlib.gzipSync(LIST));
+    } else {
+      res.writeHead(404).end();
+    }
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  const cacheDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sg-lists-'));
+  const entry = { id: 'demo', urls: [`${base}/error`, `${base}/html`, `${base}/redirect`] };
+  try {
+    const first = await loadList(entry, { cacheDir, maxAgeHours: 0 });
+    assert.equal(first.ok, true);
+    assert.equal(first.source, 'network');
+    assert.equal(first.text, LIST);
+
+    notModified = true;
+    const second = await loadList({ id: 'demo', urls: [`${base}/list`] }, { cacheDir, maxAgeHours: 0 });
+    assert.equal(second.text, LIST, 'served from cache after 304');
+
+    srv.close();
+    const offlineMirror = await loadList({ id: 'demo', urls: [`${base}/list`] }, { cacheDir, maxAgeHours: 0, timeoutMs: 2000 });
+    assert.equal(offlineMirror.source, 'stale-cache');
+    assert.equal(offlineMirror.text, LIST);
+  } finally {
+    srv.close();
+    await fs.rm(cacheDir, { recursive: true, force: true });
+  }
+});
