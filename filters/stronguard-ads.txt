@@ -12,7 +12,6 @@
 ||pagead2.googlesyndication.com^
 ||tpc.googlesyndication.com^
 ||partner.googleadservices.com^
-||imasdk.googleapis.com^$third-party
 ! --- Programmatic exchanges / SSPs / DSPs ---
 ||adnxs.com^
 ||adnxs-simple.com^

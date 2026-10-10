@@ -279,3 +279,59 @@ test('json pruning: plain paths, [] iteration, [-] array-entry removal, required
   assert.equal('{"adSlots":1,"adSlots":2}'.replace(h.sgReplacePattern('"adSlots"'), '"no_ads"'), '{"no_ads":1,"no_ads":2}');
   assert.equal('a"adPlacements":[x],"adSlots"b'.replace(h.sgReplacePattern('/"adPlacements.*?("adSlots")/gms'), '$1'), 'a"adSlots"b');
 });
+
+test('HLS pruning: VOD ad breaks cut, live left intact, interstitials dropped', async () => {
+  const { helperSource } = await import('../extension/scriptlets/library.js');
+  const { sgPruneM3u8 } = new Function(`${helperSource()}; return { sgPruneM3u8 };`)();
+  const vod = [
+    '#EXTM3U', '#EXT-X-VERSION:3', '#EXT-X-TARGETDURATION:6', '#EXT-X-PLAYLIST-TYPE:VOD',
+    '#EXTINF:6.0,', 'content1.ts',
+    '#EXT-X-CUE-OUT:DURATION=12', '#EXT-X-DISCONTINUITY', '#EXTINF:6.0,', 'ad1.ts', '#EXT-X-CUE-OUT-CONT:6/12', '#EXTINF:6.0,', 'ad2.ts',
+    '#EXT-X-CUE-IN', '#EXT-X-DISCONTINUITY', '#EXTINF:6.0,', 'content2.ts', '#EXT-X-ENDLIST', '',
+  ].join('\n');
+  const r = sgPruneM3u8(vod);
+  assert.equal(r.removed, 2);
+  assert.ok(!r.text.includes('ad1.ts') && !r.text.includes('ad2.ts') && !r.text.includes('CUE'));
+  assert.ok(r.text.includes('content1.ts') && r.text.includes('content2.ts') && r.text.includes('#EXT-X-ENDLIST'));
+  assert.equal(r.text.split('#EXT-X-DISCONTINUITY').length - 1, 1, 'one discontinuity at the junction');
+  assert.match(r.text.split('\n').slice(-4).join('\n'), /#EXTINF:6.0,\ncontent2.ts/);
+
+  const live = vod.replace('#EXT-X-PLAYLIST-TYPE:VOD\n', '').replace('#EXT-X-ENDLIST\n', '');
+  assert.equal(sgPruneM3u8(live).text, live, 'live playlists keep their segments');
+
+  const interstitial = `${live}#EXT-X-DATERANGE:ID="ad1",CLASS="com.apple.hls.interstitial",START-DATE="2026-01-01T00:00:00Z",X-ASSET-URI="https://ads.example/ad.m3u8"\n`;
+  const ri = sgPruneM3u8(interstitial);
+  assert.equal(ri.removed, 1);
+  assert.ok(!ri.text.includes('interstitial'));
+
+  const open = vod.replace('#EXT-X-CUE-IN\n', '');
+  assert.equal(sgPruneM3u8(open).text, open, 'unterminated ad break: untouched');
+  assert.equal(sgPruneM3u8('not a playlist').text, 'not a playlist');
+});
+
+test('IMA stand-in: ad requests end in "no ad" (1009), ads manager resumes content', async () => {
+  const { SCRIPTLETS } = await import('../extension/scriptlets/library.js');
+  const window = {};
+  new Function('window', `(${SCRIPTLETS['google-ima'].toString()})();`)(window);
+  const ima = window.google.ima;
+  assert.equal(ima.__stronguard, true);
+  const loader = new ima.AdsLoader(new ima.AdDisplayContainer({}, {}));
+  const got = await new Promise((resolve) => {
+    loader.addEventListener(ima.AdErrorEvent.Type.AD_ERROR, (e) => resolve(e.getError().getErrorCode()));
+    loader.requestAds(new ima.AdsRequest());
+  });
+  assert.equal(got, 1009);
+  const mgr = new ima.AdsManagerLoadedEvent().getAdsManager({}, new ima.AdsRenderingSettings());
+  const events = [];
+  await new Promise((resolve) => {
+    mgr.addEventListener(ima.AdEvent.Type.CONTENT_RESUME_REQUESTED, () => events.push('resume'));
+    mgr.addEventListener(ima.AdEvent.Type.ALL_ADS_COMPLETED, () => {
+      events.push('done');
+      resolve();
+    });
+    mgr.init(640, 360, ima.ViewMode.NORMAL);
+    mgr.start();
+  });
+  assert.deepEqual(events, ['resume', 'done']);
+  assert.deepEqual(mgr.getCuePoints(), []);
+});

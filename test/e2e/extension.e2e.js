@@ -84,6 +84,49 @@ const PAGES = {
   // Mimics the Spotify web player: a detached <audio> element and the tab title.
   'open.spotify.com/': `<!doctype html><html><head><title>Song • Artist</title></head><body><div id="root">player</div>
     <script>window.__audio = document.createElement('audio'); window.__audio.play().catch(() => {});</script></body></html>`,
+  // Generic sites: a Video.js-style player in ad mode, a long video beside an ad label,
+  // a long clip under a strong ad signal, the IMA SDK, a VAST request and HLS playlists.
+  'videojs.test/': `<!doctype html><html><body>
+    <div class="video-js vjs-ad-playing" id="player"><video id="adv" src="/ad30.wav" preload="auto"></video>
+      <video id="content" src="/clip90.wav" preload="auto"></video>
+      <button class="vjs-skip" onclick="window.__skipped = (window.__skipped || 0) + 1">Skip Ad</button></div>
+    <script>document.getElementById('adv').play();</script></body></html>`,
+  'labels.test/': `<!doctype html><html><body>
+    <div id="wrap"><video id="cv" src="/content300.wav" preload="auto"></video><div>Ad 1 of 2 · 0:15</div></div>
+    <script>document.getElementById('cv').play();</script></body></html>`,
+  'containers.test/': `<!doctype html><html><body>
+    <div id="head-container"><video id="hero" src="/ad30.wav" preload="auto" loop></video></div>
+    <div id="threadContainer"><video id="clip" src="/clip90.wav" preload="auto"></video></div>
+    <div id="video-ad-container"><video id="ad" src="/ad30.wav" preload="auto"></video></div>
+    <script>for (const id of ['hero', 'clip', 'ad']) document.getElementById(id).play();</script></body></html>`,
+  'longad.test/': `<!doctype html><html><body>
+    <div class="jw-flag-ads"><video id="lv" src="/content300.wav" preload="auto"></video></div>
+    <script>document.getElementById('lv').play();</script></body></html>`,
+  'ima.test/': `<!doctype html><html><body>
+    <script src="https://imasdk.googleapis.com/js/sdkloader/ima3.js"></script>
+    <script>
+      window.__r = {};
+      const loader = new google.ima.AdsLoader(new google.ima.AdDisplayContainer(document.body));
+      loader.addEventListener(google.ima.AdErrorEvent.Type.AD_ERROR, (e) => (window.__r.ima = 'error:' + e.getError().getErrorCode()));
+      loader.addEventListener(google.ima.AdsManagerLoadedEvent.Type.ADS_MANAGER_LOADED, () => (window.__r.ima = 'ads'));
+      const req = new google.ima.AdsRequest();
+      req.adTagUrl = 'https://pubads.g.doubleclick.net/gampad/ads?iu=/1/video&output=vast';
+      loader.requestAds(req);
+      const x = new XMLHttpRequest();
+      x.open('GET', 'https://pubads.g.doubleclick.net/gampad/ads?iu=/1/video&output=vast&sz=640x480');
+      x.onload = () => (window.__r.vast = x.responseText);
+      x.onerror = () => (window.__r.vast = 'network-error');
+      x.send();
+    </script></body></html>`,
+  'hls.test/': `<!doctype html><html><body><script>
+      window.__r = {};
+      fetch('/vod.m3u8').then((r) => r.text()).then((t) => (window.__r.vodFetch = t));
+      const x = new XMLHttpRequest();
+      x.open('GET', '/media/vod2.m3u8');
+      x.onload = () => (window.__r.vodXhr = x.responseText);
+      x.send();
+      fetch('/live.m3u8').then((r) => r.text()).then((t) => (window.__r.live = t));
+    </script></body></html>`,
   'tabunder.test/': `<!doctype html><html><body><button id="go" onclick="
       window.open(location.href, '_blank');
       setTimeout(() => { location.href = 'http://lander.test/'; }, 30);
@@ -106,6 +149,33 @@ const SHORTS_RESPONSE = JSON.stringify({
   ],
 });
 
+// Silent 8 kHz mono WAV of the given length: real media with a real duration.
+function wav(seconds) {
+  const rate = 8000;
+  const n = rate * seconds;
+  const b = Buffer.alloc(44 + n, 128);
+  b.write('RIFF', 0);
+  b.writeUInt32LE(36 + n, 4);
+  b.write('WAVEfmt ', 8);
+  b.writeUInt32LE(16, 16);
+  b.writeUInt16LE(1, 20);
+  b.writeUInt16LE(1, 22);
+  b.writeUInt32LE(rate, 24);
+  b.writeUInt32LE(rate, 28);
+  b.writeUInt16LE(1, 32);
+  b.writeUInt16LE(8, 34);
+  b.write('data', 36);
+  b.writeUInt32LE(n, 40);
+  return b;
+}
+const MEDIA = { '/ad30.wav': wav(30), '/clip90.wav': wav(90), '/content300.wav': wav(300) };
+
+const HLS_VOD = ['#EXTM3U', '#EXT-X-TARGETDURATION:6', '#EXT-X-PLAYLIST-TYPE:VOD', '#EXTINF:6.0,', 'content1.ts',
+  '#EXT-X-CUE-OUT:DURATION=6', '#EXT-X-DISCONTINUITY', '#EXTINF:6.0,', 'ad-segment.ts', '#EXT-X-CUE-IN', '#EXT-X-DISCONTINUITY',
+  '#EXTINF:6.0,', 'content2.ts', '#EXT-X-ENDLIST', ''].join('\n');
+const HLS_LIVE = HLS_VOD.replace('#EXT-X-PLAYLIST-TYPE:VOD\n', '').replace('#EXT-X-ENDLIST\n', '') +
+  '#EXT-X-DATERANGE:ID="i1",CLASS="com.apple.hls.interstitial",START-DATE="2026-01-01T00:00:00Z",X-ASSET-URI="https://ads.example/ad.m3u8"\n';
+
 const hits = [];
 function startServer() {
   const handler = (req, res) => {
@@ -118,6 +188,27 @@ function startServer() {
     }
     hits.push(url.href);
     const key = `${url.hostname}${url.pathname}`;
+    if (MEDIA[url.pathname]) {
+      const body = MEDIA[url.pathname];
+      const range = /bytes=(\d+)-(\d*)/.exec(req.headers.range || '');
+      if (range) {
+        const start = Number(range[1]);
+        const end = range[2] ? Number(range[2]) : body.length - 1;
+        res.writeHead(206, { 'Content-Type': 'audio/wav', 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${body.length}`, 'Content-Length': end - start + 1 });
+        res.end(body.subarray(start, end + 1));
+      } else {
+        res.writeHead(200, { 'Content-Type': 'audio/wav', 'Accept-Ranges': 'bytes', 'Content-Length': body.length }).end(body);
+      }
+      return;
+    }
+    if (url.pathname.endsWith('.m3u8')) {
+      res.writeHead(200, { 'Content-Type': 'application/vnd.apple.mpegurl' }).end(url.pathname.includes('live') ? HLS_LIVE : HLS_VOD);
+      return;
+    }
+    if (url.pathname.startsWith('/gampad/ads')) {
+      res.writeHead(200, { 'Content-Type': 'text/xml' }).end('<VAST version="4.0"><Ad id="real-ad"/></VAST>');
+      return;
+    }
     if (url.pathname.startsWith('/youtubei/v1/player')) {
       res.writeHead(200, { 'Content-Type': 'application/json' }).end(PLAYER_RESPONSE);
     } else if (url.pathname.startsWith('/youtubei/v1/reel/reel_watch_sequence')) {
@@ -195,6 +286,7 @@ async function main() {
       `--proxy-server=http://127.0.0.1:${port}`,
       '--proxy-bypass-list=<-loopback>',
       '--disable-features=HttpsUpgrades,HttpsFirstBalancedModeAutoEnable',
+      '--autoplay-policy=no-user-gesture-required',
     ],
   });
 
@@ -348,6 +440,9 @@ async function main() {
 
     await test('allowlisted site gets no blocking', async () => {
       await send({ t: 'ui:toggleSite', hostname: 'news.test', allowed: true });
+      const ruled = await until(() => ui.evaluate(async () =>
+        (await chrome.declarativeNetRequest.getDynamicRules()).some((r) => r.action.type === 'allowAllRequests' && (r.condition.requestDomains || []).includes('news.test'))), 3000);
+      assert.ok(ruled, 'allowlist rule not installed');
       const p = await context.newPage();
       const b = blockedRequests(p);
       await p.goto('http://news.test/');
@@ -427,6 +522,100 @@ async function main() {
       await sp.close();
       assert.ok(muted, 'ad was not muted');
       assert.ok(restored, 'sound not restored after the ad');
+    });
+
+    console.log('\nVideo ads on any site');
+    const mediaState = (p, id) => p.evaluate((i) => {
+      const v = document.getElementById(i);
+      return { muted: v.muted, rate: v.playbackRate, time: v.currentTime, duration: v.duration, ended: v.ended };
+    }, id);
+
+    await test('player in ad mode: ad muted, fast-forwarded and skipped; restored after', async () => {
+      const p = await context.newPage();
+      await p.goto('http://videojs.test/');
+      const during = await until(async () => {
+        const s = await mediaState(p, 'adv');
+        const skipped = await p.evaluate(() => window.__skipped > 0);
+        return s.muted && (s.ended || s.time > 25) && skipped ? s : null;
+      }, 6000);
+      assert.ok(during, `ad not handled: ${JSON.stringify(await mediaState(p, 'adv'))}`);
+      await p.evaluate(() => document.getElementById('player').classList.remove('vjs-ad-playing'));
+      const after = await until(async () => {
+        const s = await mediaState(p, 'adv');
+        const c = await mediaState(p, 'content');
+        return !s.muted && s.rate === 1 && !c.muted ? c : null;
+      }, 3000);
+      await p.close();
+      assert.ok(after, 'mute/speed not restored after the ad');
+      assert.ok(after.time < 1 && after.rate === 1, `paused content video next to the ad was moved: ${JSON.stringify(after)}`);
+    });
+
+    await test('ad containers are recognised by whole words, never "head-container"', async () => {
+      const p = await context.newPage();
+      await p.goto('http://containers.test/');
+      const ad = await until(async () => {
+        const s = await mediaState(p, 'ad');
+        return s.muted && (s.ended || s.time > 25) ? s : null;
+      }, 6000);
+      await p.waitForTimeout(600);
+      const hero = await mediaState(p, 'hero');
+      const clip = await mediaState(p, 'clip');
+      await p.close();
+      assert.ok(ad, 'video in #video-ad-container not handled');
+      for (const [name, s] of [['hero', hero], ['clip', clip]]) {
+        assert.ok(!s.muted && s.rate === 1 && s.time < 10, `${name} wrongly treated as an ad: ${JSON.stringify(s)}`);
+      }
+    });
+
+    await test('ad label beside a long video: muted only, never fast-forwarded', async () => {
+      const p = await context.newPage();
+      await p.goto('http://labels.test/');
+      const muted = await until(async () => (await mediaState(p, 'cv')).muted, 5000);
+      await p.waitForTimeout(800);
+      const s = await mediaState(p, 'cv');
+      // A label is only a hint: if the user unmutes, it stays unmuted.
+      await p.evaluate(() => (document.getElementById('cv').muted = false));
+      await p.waitForTimeout(900);
+      const unmuted = !(await mediaState(p, 'cv')).muted;
+      await p.close();
+      assert.ok(muted, 'ad-labelled playback not muted');
+      assert.ok(s.time < 10 && s.rate === 1, `content must not be fast-forwarded: ${JSON.stringify(s)}`);
+      assert.ok(unmuted, 'user could not unmute a label-only match');
+    });
+
+    await test('strong ad signal on a 5-minute clip: muted, not fast-forwarded', async () => {
+      const p = await context.newPage();
+      await p.goto('http://longad.test/');
+      const muted = await until(async () => (await mediaState(p, 'lv')).muted, 5000);
+      await p.waitForTimeout(800);
+      const s = await mediaState(p, 'lv');
+      await p.close();
+      assert.ok(muted);
+      assert.ok(s.time < 10, `long clip must not be skipped: ${JSON.stringify(s)}`);
+    });
+
+    await test('Google IMA SDK replaced: ad requests end in "no ad", VAST tags answered empty', async () => {
+      const p = await context.newPage();
+      await p.goto('http://ima.test/');
+      const r = await until(() => p.evaluate(() => (window.__r.ima && window.__r.vast ? window.__r : null)), 6000);
+      await p.close();
+      assert.ok(r, 'IMA flow did not complete');
+      assert.equal(r.ima, 'error:1009');
+      assert.ok(!r.vast.includes('real-ad'), `real VAST reached the page: ${r.vast}`);
+      assert.ok(!hits.some((h) => h.includes('imasdk.googleapis.com')), 'real IMA SDK was downloaded');
+    });
+
+    await test('HLS: stitched ad breaks cut from on-demand playlists, live untouched except interstitials', async () => {
+      const p = await context.newPage();
+      await p.goto('http://hls.test/');
+      const r = await until(() => p.evaluate(() => (window.__r.vodFetch && window.__r.vodXhr && window.__r.live ? window.__r : null)), 6000);
+      await p.close();
+      assert.ok(r, 'playlists not loaded');
+      for (const t of [r.vodFetch, r.vodXhr]) {
+        assert.ok(!t.includes('ad-segment.ts') && t.includes('content1.ts') && t.includes('content2.ts'), t);
+      }
+      assert.ok(r.live.includes('ad-segment.ts'), 'live playlist segments must be kept');
+      assert.ok(!r.live.includes('interstitial'), 'interstitial ad must be dropped');
     });
 
     console.log('\nLevel 4');

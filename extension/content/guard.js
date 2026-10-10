@@ -315,8 +315,14 @@
     }
   }
   // --------------------------------------------------------------------------
-  // Streaming services: when an ad still plays (lists missed it), mute it and,
-  // where the service allows, fast-forward / skip it. State is restored after.
+  // Media ad guard: when a video/audio ad still plays (the lists, the IMA
+  // stand-in and HLS pruning missed it), mute it and, when the signal is
+  // unambiguous, fast-forward or skip it. Everything is restored afterwards.
+  //
+  // Service adapters cover sites with their own players (YouTube, Spotify,
+  // Twitch); the generic adapter recognises the ad mode of common players
+  // (Video.js/Brightcove, JW Player, Google IMA, embedded YouTube) and on-screen
+  // ad labels on any other site.
 
   const onHost = (domains) => domains.some((d) => location.hostname === d || location.hostname.endsWith('.' + d));
   const anyMatch = (selectors) => {
@@ -329,15 +335,61 @@
     }
     return false;
   };
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    return r.width > 2 && r.height > 2 && getComputedStyle(el).visibility !== 'hidden';
+  };
+  const MAX_AD_SECONDS = 180; // never fast-forward anything longer: it is content
 
-  const SERVICES = [
+  const SKIP_LABEL = /^\s*(skip|skip ads?|skip this ad|skip advertisement|skip ad now|passer( la pub(licité)?)?|werbung überspringen|überspringen|saltar( anuncio)?|pular( anúncio)?|salta( annuncio)?|пропустить( рекламу)?|تخطي( الإعلان)?|reklamı geç)\s*[›»>▶]*\s*$/i;
+  function skipButtons(roots) {
+    const out = new Set();
+    for (const root of roots) {
+      for (const el of root.querySelectorAll('button, [role="button"], a, [class*="skip" i]')) {
+        const label = ((el.innerText || '') || el.getAttribute('aria-label') || '').trim();
+        if (label && label.length < 40 && SKIP_LABEL.test(label) && visible(el)) out.add(el);
+      }
+    }
+    return out;
+  }
+
+  const AD_LABEL = new RegExp(
+    [
+      '\\bad\\s*\\d+\\s*(of|/)\\s*\\d+',
+      '\\bad\\s*[·•:|-]?\\s*\\d{1,2}:\\d{2}\\b',
+      '(^|\\n)\\s*(advertisement|sponsored|werbung|anzeige|publicité|publicidad|pubblicità|reklama|реклама|إعلان)\\s*($|\\n)',
+      'your video will (begin|play|start|resume)',
+      'video will (play|start|resume) after (the )?ad',
+      '(ad|advertisement) (will )?ends? in',
+    ].join('|'),
+    'i',
+  );
+
+  const PLAYER_AD_MODE = '.vjs-ad-playing, .jw-flag-ads, .html5-video-player.ad-showing, .html5-video-player.ad-interrupting';
+  const AD_CONTAINERS = '.ima-ad-container, .videoAdUi, .ad-container, .ads-container, .video-ads, .video-ad-container, [class*="AdContainer"]';
+  // Ids must contain "ad container" as words: "video-ad-container", "videoAdContainer", never "head-container" or "threadContainer".
+  const AD_CONTAINER_ID = /(^|[^a-zA-Z])[aA]ds?[-_]?[cC]ontainer|[a-z\d]Ads?Container/;
+  const adContainers = () => [
+    ...document.querySelectorAll(AD_CONTAINERS),
+    ...[...document.querySelectorAll('[id*="container" i]')].filter((el) => AD_CONTAINER_ID.test(el.id)),
+  ];
+
+  const ADAPTERS = [
     {
       name: 'youtube',
       domains: ['youtube.com', 'youtube-nocookie.com', 'youtubekids.com'],
-      adActive: () => anyMatch(['.html5-video-player.ad-showing', '.html5-video-player.ad-interrupting']),
-      // The ad plays in the same <video> as the content: seek it to the end.
-      fastForward: (el) => !!(el.closest && el.closest('.html5-video-player.ad-showing, .html5-video-player.ad-interrupting')),
-      skip: ['.ytp-skip-ad-button', '.ytp-ad-skip-button', '.ytp-ad-skip-button-modern', '.ytp-ad-skip-button-slot button', '.ytp-ad-overlay-close-button'],
+      scan() {
+        const players = document.querySelectorAll('.html5-video-player.ad-showing, .html5-video-player.ad-interrupting');
+        if (!players.length) return null;
+        const media = new Set();
+        for (const p of players) for (const v of p.querySelectorAll('video')) media.add(v);
+        const skip = new Set();
+        for (const sel of ['.ytp-skip-ad-button', '.ytp-ad-skip-button', '.ytp-ad-skip-button-modern', '.ytp-ad-skip-button-slot button', '.ytp-ad-overlay-close-button']) {
+          for (const b of document.querySelectorAll(sel)) skip.add(b);
+        }
+        // The ad plays in the same <video> as the content: seek it to the end.
+        return { mute: media, fastForward: media, skip, anyLength: true };
+      },
       cleanup() {
         // "Ad blockers are not allowed on YouTube" wall
         const wall = document.querySelector('ytd-enforcement-message-view-model');
@@ -352,65 +404,118 @@
     {
       name: 'spotify',
       domains: ['open.spotify.com'],
-      adActive() {
+      scan(media) {
         const title = (document.title || '').trim();
         // Tracks are titled "Song • Artist"; ads are titled "Advertisement" or the advertiser.
-        if (/^(spotify\s*[-–—]\s*)?advertisement$/i.test(title)) return true;
-        if (anyMatch(['[data-testid="context-item-info-ad-subtitle"]', '[data-testid="ad-type-label"]', '[data-testid="now-playing-widget"] a[href*="/ad/"]'])) return true;
-        const widget = document.querySelector('[data-testid="now-playing-widget"]');
-        const label = widget ? `${widget.getAttribute('aria-label') || ''}` : '';
-        return /\badvertisement\b/i.test(label);
+        let ad = /^(spotify\s*[-–—]\s*)?advertisement$/i.test(title) ||
+          anyMatch(['[data-testid="context-item-info-ad-subtitle"]', '[data-testid="ad-type-label"]', '[data-testid="now-playing-widget"] a[href*="/ad/"]']);
+        if (!ad) {
+          const widget = document.querySelector('[data-testid="now-playing-widget"]');
+          ad = !!widget && /\badvertisement\b/i.test(widget.getAttribute('aria-label') || '');
+        }
+        return ad ? { mute: new Set(media) } : null;
       },
     },
     {
       name: 'twitch',
       domains: ['twitch.tv'],
-      adActive: () => anyMatch(['[data-a-target="video-ad-label"]', '[data-a-target="video-ad-countdown"]', '[data-test-selector="ad-banner-default-text"]']),
+      scan(media) {
+        const ad = anyMatch(['[data-a-target="video-ad-label"]', '[data-a-target="video-ad-countdown"]', '[data-test-selector="ad-banner-default-text"]']);
+        return ad ? { mute: new Set(media) } : null;
+      },
     },
   ];
 
-  const service = F.mediaAdGuard ? SERVICES.find((s) => onHost(s.domains)) : null;
-  if (service) {
-    const media = new Set();
-    const saved = new Map(); // element -> state before we touched it
-    let adOn = false;
-    const mute = (el) => {
-      if (!saved.has(el)) saved.set(el, { muted: el.muted, rate: el.playbackRate });
-      el.muted = true;
-    };
-    // Media elements created by script and never attached to the DOM (Spotify) are caught on play().
-    HTMLMediaElement.prototype.play = new Proxy(HTMLMediaElement.prototype.play, {
-      apply(target, el, args) {
-        media.add(el);
-        if (adOn) mute(el);
-        return apply(target, el, args);
-      },
-    });
-    const tick = () => {
-      for (const el of document.querySelectorAll('video, audio')) media.add(el);
-      let active = false;
-      try {
-        active = service.adActive();
-      } catch (e) {
-        active = false;
-      }
-      if (active) {
-        if (!adOn) {
-          adOn = true;
-          report('mediaAd', service.name);
+  const GENERIC = {
+    name: 'generic',
+    scan(media) {
+      const mute = new Set();
+      const fastForward = new Set();
+      const roots = [];
+      // 1. A player framework says it is playing an ad (strong signal). Only the playing
+      // element is sped up: the paused content video often sits in the same player.
+      for (const root of document.querySelectorAll(PLAYER_AD_MODE)) {
+        roots.push(root);
+        for (const v of root.querySelectorAll('video, audio')) {
+          mute.add(v);
+          if (!v.paused) fastForward.add(v);
         }
-        for (const el of media) {
-          mute(el);
-          if (service.fastForward && service.fastForward(el)) {
-            try {
-              el.playbackRate = 16;
-              if (Number.isFinite(el.duration) && el.duration > 0 && el.currentTime < el.duration - 0.3) el.currentTime = el.duration - 0.1;
-            } catch (e) {
-              /* not seekable */
-            }
+      }
+      // 2. An ad container is showing a playing video (strong signal).
+      for (const c of adContainers()) {
+        for (const v of c.querySelectorAll('video, audio')) {
+          if (v.paused || !visible(c)) continue;
+          roots.push(c);
+          mute.add(v);
+          fastForward.add(v);
+        }
+      }
+      // 3. An ad label/countdown next to a playing video (weak signal: mute only, and the
+      // user can unmute if it is wrong).
+      const weak = new Set();
+      for (const v of media) {
+        if (v.paused || !v.isConnected || mute.has(v)) continue;
+        let p = v.parentElement;
+        for (let i = 0; p && i < 3; i++, p = p.parentElement) {
+          const text = p.innerText || '';
+          if (text.length > 600) break;
+          if (AD_LABEL.test(text)) {
+            roots.push(p);
+            mute.add(v);
+            weak.add(v);
+            break;
           }
         }
-        for (const sel of service.skip || []) for (const b of document.querySelectorAll(sel)) b.click();
+      }
+      if (!mute.size) return null;
+      return { mute, fastForward, skip: skipButtons(roots), weak };
+    },
+  };
+
+  if (F.mediaAdGuard) {
+    const adapter = ADAPTERS.find((a) => onHost(a.domains)) || GENERIC;
+    const media = new Set(); // includes elements never attached to the DOM (e.g. Spotify)
+    const saved = new Map(); // element -> state before we touched it
+    const forced = new Set(); // elements we muted during this ad
+    const unmutedByUser = new Set(); // ...and that were unmuted again since
+    let adOn = false;
+    let timer = 0;
+
+    const tick = () => {
+      for (const el of document.querySelectorAll('video, audio')) media.add(el);
+      for (const el of media) if (!el.isConnected && el.paused && !saved.has(el)) media.delete(el);
+      let found = null;
+      try {
+        found = adapter.scan(media);
+      } catch (e) {
+        found = null;
+      }
+      for (const el of forced) if (!el.muted) unmutedByUser.add(el);
+      if (found) {
+        if (!adOn) {
+          adOn = true;
+          report('mediaAd', adapter.name);
+        }
+        for (const el of found.mute) {
+          if (found.weak && found.weak.has(el) && unmutedByUser.has(el)) continue;
+          if (!saved.has(el)) saved.set(el, { muted: el.muted, rate: el.playbackRate });
+          el.muted = true;
+          forced.add(el);
+        }
+        for (const el of found.fastForward || []) {
+          const d = el.duration;
+          const known = Number.isFinite(d) && d > 0;
+          // Service adapters know the element is an ad; elsewhere only short, known-length clips are sped up.
+          if (!found.anyLength && (!known || d > MAX_AD_SECONDS)) continue;
+          try {
+            if (!saved.has(el)) saved.set(el, { muted: el.muted, rate: el.playbackRate });
+            el.playbackRate = 16;
+            if (known && el.currentTime < d - 0.3) el.currentTime = d - 0.1;
+          } catch (e) {
+            /* not seekable */
+          }
+        }
+        for (const b of found.skip || []) b.click();
       } else if (adOn) {
         adOn = false;
         for (const [el, st] of saved) {
@@ -422,15 +527,39 @@
           }
         }
         saved.clear();
+        forced.clear();
+        unmutedByUser.clear();
       }
-      if (service.cleanup) {
+      if (adapter.cleanup) {
         try {
-          service.cleanup();
+          adapter.cleanup();
         } catch (e) {
           /* ignore */
         }
       }
     };
-    setInterval(tick, 250);
+    const start = () => {
+      if (!timer) timer = setInterval(tick, 300);
+    };
+
+    // Service sites are watched from the start; anywhere else only once media plays.
+    if (adapter !== GENERIC) start();
+    HTMLMediaElement.prototype.play = new Proxy(HTMLMediaElement.prototype.play, {
+      apply(target, el, args) {
+        media.add(el);
+        start();
+        if (adOn) {
+          if (!saved.has(el)) saved.set(el, { muted: el.muted, rate: el.playbackRate });
+          el.muted = true;
+        }
+        return apply(target, el, args);
+      },
+    });
+    document.addEventListener('playing', (e) => {
+      if (e.target instanceof HTMLMediaElement) {
+        media.add(e.target);
+        start();
+      }
+    }, true);
   }
 })(__SG_FEATURES__);

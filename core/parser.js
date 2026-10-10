@@ -392,6 +392,8 @@ const SCRIPTLET_ALIASES = {
   'disable-newtab-links': ['disable-newtab-links'],
   'prevent-refresh': ['prevent-refresh', 'refresh-defuser'],
   'prevent-dialog': ['prevent-dialog'],
+  'google-ima': ['google-ima', 'google-ima3'],
+  'hls-prune': ['hls-prune', 'm3u-prune-ads'],
 };
 const SCRIPTLET_NAME = new Map();
 for (const [canon, aliases] of Object.entries(SCRIPTLET_ALIASES)) {

@@ -51,6 +51,7 @@ addRedirect('google-analytics_analytics.js', 'google-analytics_analytics.js', 'g
 addRedirect('googletagservices_gpt.js', 'googletagservices_gpt.js', 'googletagservices.com/gpt.js', 'googletagservices-gpt');
 addRedirect('amazon_apstag.js', 'amazon_apstag.js', 'amazon-adsystem.com/aax2/amzn_ads.js', 'amazon-apstag');
 addRedirect('prebid-ads.js', 'prebid-ads.js');
+addRedirect('google-ima.js', 'google-ima.js', 'google-ima3', 'google-ima', 'google-ima3.js');
 addRedirect('scorecardresearch_beacon.js', 'scorecardresearch_beacon.js', 'scorecardresearch.com/beacon.js');
 
 export function redirectResource(name) {

@@ -1141,6 +1141,298 @@ function preventDialog(needle) {
   }
 }
 
+// Removes server-side-inserted ads from HLS media playlists.
+//  - Ad breaks marked with SCTE-35 cues (#EXT-X-CUE-OUT ... #EXT-X-CUE-IN) are cut
+//    out of on-demand playlists (live playlists are left intact: removing entries
+//    would shift segment numbering; the media ad guard mutes those instead).
+//  - HLS interstitial ads (#EXT-X-DATERANGE with CLASS="com.apple.hls.interstitial")
+//    are dropped from any playlist: the tag only schedules a separate ad asset.
+// Returns { text, removed }.
+function sgPruneM3u8(text) {
+  if (typeof text !== 'string' || !text.startsWith('#EXTM3U')) return { text: text, removed: 0 };
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  const lines = text.split(/\r?\n/);
+  const vod = /#EXT-X-ENDLIST|#EXT-X-PLAYLIST-TYPE:VOD/.test(text);
+  const out = [];
+  let removed = 0;
+  let inAd = false;
+  let cutAny = false;
+  for (const line of lines) {
+    if (line.startsWith('#EXT-X-DATERANGE') && /CLASS="com\.apple\.hls\.interstitial"/.test(line)) {
+      removed++;
+      continue;
+    }
+    if (!vod) {
+      out.push(line);
+      continue;
+    }
+    if (line.startsWith('#EXT-X-CUE-OUT') && !line.startsWith('#EXT-X-CUE-OUT-CONT')) {
+      inAd = true;
+      continue;
+    }
+    if (line.startsWith('#EXT-X-CUE-IN')) {
+      if (inAd) {
+        inAd = false;
+        cutAny = true;
+        // Content resumes with its own timestamps: tell the player.
+        if (out[out.length - 1] !== '#EXT-X-DISCONTINUITY') out.push('#EXT-X-DISCONTINUITY');
+      }
+      continue;
+    }
+    if (!inAd) {
+      if (!(line === '#EXT-X-DISCONTINUITY' && out[out.length - 1] === line)) out.push(line);
+      continue;
+    }
+    // Inside an ad break: keep tags that apply to later segments, drop the ad segments.
+    if (line.startsWith('#EXT-X-KEY') || line.startsWith('#EXT-X-MAP')) out.push(line);
+    else if (line !== '' && !line.startsWith('#')) removed++;
+  }
+  if (inAd) return { text: text, removed: 0 }; // unterminated break: leave untouched
+  if (!removed && !cutAny) return { text: text, removed: 0 };
+  return { text: out.join(eol), removed: removed };
+}
+
+function hlsPrune() {
+  const isPlaylistUrl = function (props) {
+    return /\.m3u8|m3u8|mpegurl|\/hls\//i.test(props.url);
+  };
+  const transform = function (text) {
+    const r = sgPruneM3u8(text);
+    if (r.removed) {
+      try {
+        document.dispatchEvent(new CustomEvent('sg-guard-event', { detail: JSON.stringify({ kind: 'mediaAd', info: 'hls' }) }));
+      } catch (e) {
+        /* ignore */
+      }
+    }
+    return r.text;
+  };
+  sgFetchResponseFilter(isPlaylistUrl, transform);
+  sgXhrResponseFilter(isPlaylistUrl, transform);
+}
+
+// Stand-in for the Google IMA HTML5 SDK (ima3.js). Players get the full API
+// surface; every ad request ends in a normal "no ad available" error (VAST 1009),
+// which all IMA integrations treat as "play the content now".
+function googleIma() {
+  if (window.google && window.google.ima && window.google.ima.__stronguard) return;
+  const noop = function () {};
+  const listeners = function (target) {
+    const map = new Map();
+    target.addEventListener = function (types, cb) {
+      for (const t of [].concat(types)) {
+        if (!map.has(t)) map.set(t, new Set());
+        map.get(t).add(cb);
+      }
+    };
+    target.removeEventListener = function (types, cb) {
+      for (const t of [].concat(types)) if (map.has(t)) map.get(t).delete(cb);
+    };
+    target.dispatch = function (type, ev) {
+      for (const cb of map.get(type) || []) {
+        try {
+          if (typeof cb === 'function') cb.call(target, ev);
+          else if (cb && typeof cb.handleEvent === 'function') cb.handleEvent(ev);
+        } catch (e) {
+          setTimeout(function () {
+            throw e;
+          });
+        }
+      }
+    };
+    return target;
+  };
+  const AdError = function (message, code, type) {
+    this.message = message;
+    this.errorCode = code;
+    this.type = type;
+  };
+  AdError.prototype = {
+    getErrorCode: function () {
+      return this.errorCode;
+    },
+    getVastErrorCode: function () {
+      return this.errorCode;
+    },
+    getMessage: function () {
+      return this.message;
+    },
+    getType: function () {
+      return this.type;
+    },
+    getInnerError: function () {
+      return null;
+    },
+    toString: function () {
+      return 'AdError ' + this.errorCode + ': ' + this.message;
+    },
+  };
+  AdError.ErrorCode = {
+    VAST_EMPTY_RESPONSE: 1009, VAST_NO_ADS_AFTER_WRAPPER: 303, VAST_LOAD_TIMEOUT: 301, UNKNOWN_ERROR: 900,
+    VIDEO_PLAY_ERROR: 400, FAILED_TO_REQUEST_ADS: 1005, AUTOPLAY_DISALLOWED: 1205,
+  };
+  AdError.Type = { AD_LOAD: 'adLoadError', AD_PLAY: 'adPlayError' };
+  const AdErrorEvent = function (error, context) {
+    this.type = 'adError';
+    this.error = error;
+    this.context = context;
+  };
+  AdErrorEvent.prototype = {
+    getError: function () {
+      return this.error;
+    },
+    getUserRequestContext: function () {
+      return this.context;
+    },
+  };
+  AdErrorEvent.Type = { AD_ERROR: 'adError' };
+  const AdEvent = function (type) {
+    this.type = type;
+  };
+  AdEvent.prototype = {
+    getAd: function () {
+      return null;
+    },
+    getAdData: function () {
+      return {};
+    },
+  };
+  AdEvent.Type = {
+    AD_BREAK_READY: 'adBreakReady', AD_BUFFERING: 'adBuffering', AD_METADATA: 'adMetadata', AD_PROGRESS: 'adProgress',
+    ALL_ADS_COMPLETED: 'allAdsCompleted', CLICK: 'click', COMPLETE: 'complete', CONTENT_PAUSE_REQUESTED: 'contentPauseRequested',
+    CONTENT_RESUME_REQUESTED: 'contentResumeRequested', DURATION_CHANGE: 'durationChange', FIRST_QUARTILE: 'firstQuartile',
+    IMPRESSION: 'impression', INTERACTION: 'interaction', LINEAR_CHANGED: 'linearChanged', LOADED: 'loaded', LOG: 'log',
+    MIDPOINT: 'midpoint', PAUSED: 'pause', RESUMED: 'resume', SKIPPABLE_STATE_CHANGED: 'skippableStateChanged',
+    SKIPPED: 'skip', STARTED: 'start', THIRD_QUARTILE: 'thirdQuartile', USER_CLOSE: 'userClose', VIDEO_CLICKED: 'videoClicked',
+    VIDEO_ICON_CLICKED: 'videoIconClicked', VOLUME_CHANGED: 'volumeChange', VOLUME_MUTED: 'mute',
+  };
+  const AdsManager = function () {
+    listeners(this);
+  };
+  for (const m of ['collapse', 'configureAdsManager', 'destroy', 'discardAdBreak', 'expand', 'focus', 'init', 'pause',
+    'resize', 'resume', 'setVolume', 'skip', 'stop', 'updateAdsRenderingSettings', 'clicked']) {
+    AdsManager.prototype[m] = noop;
+  }
+  AdsManager.prototype.start = function () {
+    const mgr = this;
+    setTimeout(function () {
+      mgr.dispatch('contentResumeRequested', new AdEvent('contentResumeRequested'));
+      mgr.dispatch('allAdsCompleted', new AdEvent('allAdsCompleted'));
+    }, 0);
+  };
+  AdsManager.prototype.getCuePoints = function () {
+    return [];
+  };
+  AdsManager.prototype.getAdSkippableState = function () {
+    return false;
+  };
+  AdsManager.prototype.getRemainingTime = function () {
+    return 0;
+  };
+  AdsManager.prototype.getVolume = function () {
+    return 1;
+  };
+  AdsManager.prototype.isCustomClickTrackingUsed = function () {
+    return false;
+  };
+  AdsManager.prototype.isCustomPlaybackUsed = function () {
+    return false;
+  };
+  const AdsManagerLoadedEvent = function () {
+    this.type = 'adsManagerLoaded';
+  };
+  AdsManagerLoadedEvent.prototype.getAdsManager = function () {
+    return new AdsManager();
+  };
+  AdsManagerLoadedEvent.prototype.getUserRequestContext = function () {
+    return null;
+  };
+  AdsManagerLoadedEvent.Type = { ADS_MANAGER_LOADED: 'adsManagerLoaded' };
+  const ImaSdkSettings = function () {};
+  for (const m of ['setAutoPlayAdBreaks', 'setCookiesEnabled', 'setDisableCustomPlaybackForIOS10Plus', 'setFeatureFlags',
+    'setLocale', 'setNumRedirects', 'setPlayerType', 'setPlayerVersion', 'setPpid', 'setSessionId', 'setVpaidAllowed',
+    'setVpaidMode', 'setSessionId']) {
+    ImaSdkSettings.prototype[m] = noop;
+  }
+  ImaSdkSettings.prototype.getCompanionBackfill = function () {
+    return 'always';
+  };
+  ImaSdkSettings.prototype.getLocale = function () {
+    return 'en';
+  };
+  ImaSdkSettings.prototype.getNumRedirects = function () {
+    return 4;
+  };
+  ImaSdkSettings.prototype.getPlayerType = function () {
+    return '';
+  };
+  ImaSdkSettings.prototype.getPlayerVersion = function () {
+    return '';
+  };
+  ImaSdkSettings.prototype.getVersion = function () {
+    return '3.0.0';
+  };
+  ImaSdkSettings.prototype.isCookiesEnabled = function () {
+    return false;
+  };
+  ImaSdkSettings.prototype.isVpaidAdapter = function () {
+    return false;
+  };
+  ImaSdkSettings.CompanionBackfillMode = { ALWAYS: 'always', ON_MASTER_AD: 'on_master_ad' };
+  ImaSdkSettings.VpaidMode = { DISABLED: 0, ENABLED: 1, INSECURE: 2 };
+  const settings = new ImaSdkSettings();
+  const AdsLoader = function () {
+    listeners(this);
+  };
+  AdsLoader.prototype.contentComplete = noop;
+  AdsLoader.prototype.destroy = noop;
+  AdsLoader.prototype.getSettings = function () {
+    return settings;
+  };
+  AdsLoader.prototype.getVersion = function () {
+    return '3.0.0';
+  };
+  AdsLoader.prototype.requestAds = function (request, context) {
+    const loader = this;
+    setTimeout(function () {
+      const err = new AdError('The VAST response document is empty.', 1009, 'adLoadError');
+      loader.dispatch('adError', new AdErrorEvent(err, context));
+    }, 0);
+  };
+  const AdDisplayContainer = function () {};
+  AdDisplayContainer.prototype.initialize = noop;
+  AdDisplayContainer.prototype.destroy = noop;
+  const AdsRequest = function () {};
+  for (const m of ['setAdWillAutoPlay', 'setAdWillPlayMuted', 'setContinuousPlayback']) AdsRequest.prototype[m] = noop;
+  const AdsRenderingSettings = function () {};
+  const CompanionAdSelectionSettings = function () {};
+  CompanionAdSelectionSettings.CreativeType = { ALL: 'All', FLASH: 'Flash', IMAGE: 'Image' };
+  CompanionAdSelectionSettings.ResourceType = { ALL: 'All', HTML: 'Html', IFRAME: 'IFrame', STATIC: 'Static' };
+  CompanionAdSelectionSettings.SizeCriteria = { IGNORE: 'IgnoreSize', SELECT_EXACT_MATCH: 'SelectExactMatch', SELECT_NEAR_MATCH: 'SelectNearMatch' };
+  window.google = window.google || {};
+  window.google.ima = {
+    __stronguard: true,
+    AdDisplayContainer: AdDisplayContainer,
+    AdError: AdError,
+    AdErrorEvent: AdErrorEvent,
+    AdEvent: AdEvent,
+    AdsLoader: AdsLoader,
+    AdsManager: AdsManager,
+    AdsManagerLoadedEvent: AdsManagerLoadedEvent,
+    AdsRenderingSettings: AdsRenderingSettings,
+    AdsRequest: AdsRequest,
+    CompanionAdSelectionSettings: CompanionAdSelectionSettings,
+    ImaSdkSettings: ImaSdkSettings,
+    OmidAccessMode: { DOMAIN: 'domain', FULL: 'full', LIMITED: 'limited' },
+    OmidVerificationVendor: {},
+    UiElements: { AD_ATTRIBUTION: 'adAttribution', COUNTDOWN: 'countdown' },
+    UniversalAdIdInfo: function () {},
+    ViewMode: { FULLSCREEN: 'fullscreen', NORMAL: 'normal' },
+    VERSION: '3.0.0',
+    settings: settings,
+  };
+}
+
 // Shared helpers needed by some scriptlets in addition to HELPERS.
 const EXTRA_HELPERS = {
   sgTimerDefuser,
@@ -1157,6 +1449,7 @@ const EXTRA_HELPERS = {
   sgReplacePattern,
   sgFetchResponseFilter,
   sgXhrResponseFilter,
+  sgPruneM3u8,
   sgSetCookie,
   sgGetCookie,
   sgStorageItem,
@@ -1205,6 +1498,13 @@ export const SCRIPTLETS = {
   'close-window': closeWindow,
   'prevent-refresh': preventRefresh,
   'prevent-dialog': preventDialog,
+  'google-ima': googleIma,
+  'hls-prune': hlsPrune,
+};
+
+// Neutered resources generated from scriptlets (served by redirect rules).
+export const GENERATED_RESOURCES = {
+  'google-ima.js': googleIma,
 };
 
 export function helperSource() {

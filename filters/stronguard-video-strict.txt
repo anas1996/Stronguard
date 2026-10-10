@@ -1,0 +1,10 @@
+[Adblock Plus 2.0]
+! Title: Stronguard Video (strict)
+! Description: Level 3+. Uses the IMA stand-in even on sites where the regular lists
+!   allow the real ad SDK because blocking it outright used to break their player.
+! Expires: 7 days
+!
+||imasdk.googleapis.com/js/sdkloader/ima3.js$script,important,redirect=google-ima.js
+!
+! --- Ads stitched into HLS streams (SCTE-35 cue-out/cue-in breaks, HLS interstitial ads) ---
+##+js(hls-prune)

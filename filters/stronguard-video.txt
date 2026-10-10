@@ -1,0 +1,25 @@
+[Adblock Plus 2.0]
+! Title: Stronguard Video
+! Description: Video/audio ads on any site. Ad SDKs are swapped for stand-ins that
+!   report "no ad", and ad requests get an empty ad schedule, so players skip the
+!   ad break cleanly instead of hanging. The extension's player ad guard and HLS
+!   pruning handle what still gets through.
+! Expires: 7 days
+!
+! --- Google IMA SDK -> stand-in that answers every ad request with "no ad" ---
+||imasdk.googleapis.com/js/sdkloader/ima3.js$script,redirect=google-ima.js
+||imasdk.googleapis.com/js/sdkloader/ima3_debug.js$script,redirect=google-ima.js
+!
+! --- VAST / VMAP ad tags -> empty ad responses ---
+||pubads.g.doubleclick.net/gampad/ads?*output=vast$xmlhttprequest,redirect=noopvast-4.0
+||pubads.g.doubleclick.net/gampad/ads?*output=xml_vast$xmlhttprequest,redirect=noopvast-4.0
+||pubads.g.doubleclick.net/gampad/ads?*output=vmap$xmlhttprequest,redirect=noopvmap-1.0
+||pubads.g.doubleclick.net/gampad/ads?*output=xml_vmap$xmlhttprequest,redirect=noopvmap-1.0
+||pubads.g.doubleclick.net/gampad/live/ads?$xmlhttprequest,redirect=noopvast-4.0
+||search.spotxchange.com/vast/$xmlhttprequest,redirect=noopvast-4.0
+||search.spotxchange.com/vmap/$xmlhttprequest,redirect=noopvmap-1.0
+||fwmrm.net/ad/g/1?*resp=vast$xmlhttprequest,redirect=noopvast-4.0
+||fwmrm.net/ad/g/1?*resp=vmap$xmlhttprequest,redirect=noopvmap-1.0
+!
+! --- Video ad measurement / player ad pings ---
+||jwpltx.com^$third-party

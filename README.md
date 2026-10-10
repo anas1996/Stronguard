@@ -42,13 +42,29 @@ Big services serve ads from their own servers, mixed in with the content, so blo
 
 For the best results with Spotify, use the web player at open.spotify.com with the extension, or the desktop app with the network shield installed.
 
+## Video and audio ads on every other site
+
+News sites, sports and TV streaming, video hosts, podcast and radio players: most of them load their ads the same few ways. Stronguard goes after each of them, starting at level 1:
+
+| Where the ad comes from | What Stronguard does |
+|---|---|
+| **Google's IMA ad SDK** (used by many video players: Video.js, JW Player, Brightcove, Bitmovin, Kaltura, custom ones) | The SDK is swapped for a built-in stand-in. The player asks it for ads, gets "no ad available" and starts the video straight away. This works even on sites that need the SDK to exist and break if it is merely blocked. |
+| **VAST / VMAP ad requests** (the standard ad-tag format: Google Ad Manager, FreeWheel, SpotX…) | Answered with an empty ad response, so the player moves on as if no ad was booked. |
+| **Ad servers and video-ad trackers** | Blocked by the filter lists and, with the network shield, by DNS for every app. |
+| **An ad that still plays** in any `<video>` or `<audio>` player | Detected from the player's own ad mode (Video.js, JW Player, IMA ad containers) or an on-screen "Ad · 0:15" / "Advertisement" label. A short ad is muted, fast-forwarded to the end and its Skip button pressed. If the only clue is a label, or the clip is longer than 3 minutes, it is only muted, so real content is never skipped. Your volume and speed come back when the ad ends. |
+| **Ads stitched into the stream** (server-side insertion in HLS `.m3u8` playlists) | From level 3, for on-demand videos, the segments between the stream's ad markers (`#EXT-X-CUE-OUT` … `#EXT-X-CUE-IN`) are cut out of the playlist before the player sees it. HLS interstitial ads are dropped from live and on-demand streams alike. |
+
+The popup counts these as "video & audio ads skipped or muted".
+
+**Limits.** Ads stitched into a *live* stream are inseparable from the broadcast: they are muted when the player shows they are ads, not removed. Streams the browser plays with its built-in HLS support, or whose playlists are fetched from a worker (Twitch), can't be rewritten, so their ads are muted instead. DASH (`.mpd`) streams aren't rewritten yet. As everywhere, a site can still change how its player works faster than any list updates.
+
 ## Protection levels
 
 | Level | Name | What it adds |
 |---|---|---|
-| 1 | **Relaxed** | EasyList, EasyPrivacy, uBlock lists · element hiding + anti-adblock scriptlets · YouTube ad stripping/skipping, Spotify & Twitch ad muting · popups without a click blocked · known popup/malvertising networks blocked as pages and their tabs auto-closed · DNS core lists + CNAME uncloaking · browser popup/intrusive-ad policies |
+| 1 | **Relaxed** | EasyList, EasyPrivacy, uBlock lists · element hiding + anti-adblock scriptlets · YouTube ad stripping/skipping, Spotify & Twitch ad muting · video ads on any site: IMA SDK stand-in, empty VAST/VMAP answers, ads in any player muted and skipped · popups without a click blocked · known popup/malvertising networks blocked as pages and their tabs auto-closed · DNS core lists + CNAME uncloaking · browser popup/intrusive-ad policies |
 | 2 | **Standard** | Popup-ad lists (AdGuard Popups, HaGeZi pop-up ads) · one popup per click · notification prompts denied · tracking parameters (`utm_*`, `fbclid`, `gclid`…) stripped · back-button hijacking blocked · DNS: StevenBlack + threat intelligence |
-| 3 | **Aggressive** *(default)* | Annoyance lists · fullscreen overlays and "disable your adblocker" walls removed, scrolling restored · invisible click-hijacking layers removed · ad-server domains blocked even as pages · DNS: HaGeZi Pro, Firefox/iCloud bypass canaries · firewall blocks DNS-over-TLS · browsers forced onto system DNS |
+| 3 | **Aggressive** *(default)* | Annoyance lists · fullscreen overlays and "disable your adblocker" walls removed, scrolling restored · invisible click-hijacking layers removed · ad breaks cut from on-demand HLS streams · ad-server domains blocked even as pages · DNS: HaGeZi Pro, Firefox/iCloud bypass canaries · firewall blocks DNS-over-TLS · browsers forced onto system DNS |
 | 4 | **Hardcore** | Cookie-banner lists · cross-site popups only from a real link/button · tab-unders reverted · "leave site?" traps and dialog loops blocked · ad-sized iframes and sticky ad bars hidden · tracker domains blocked as pages, third-party beacons blocked · DNS: HaGeZi Pro++, DoH bypass endpoints · firewall forces all DNS through Stronguard and blocks public DoH resolvers · notifications blocked by policy |
 | 5 | **Nuclear** | All third-party iframes blocked (video, payment, captcha and sign-in embeds excepted) · all cross-site popups blocked (sign-in/payment providers excepted) · any fullscreen overlay removed · "Sponsored/Advertisement" blocks hidden · social widgets · DNS: HaGeZi Ultimate + broader threat feed |
 
@@ -134,10 +150,10 @@ stronguard firewall | policies | hosts | pac   print what Stronguard generates
 - **Network rules**: filter lists are compiled at build time into `declarativeNetRequest` rulesets, one set per level, switched on and off by the slider. Hostname rules are merged into large `requestDomains` rules, so about 263k domains fit in about 28k rules, under Chrome's guaranteed 30k. Supported: `$third-party`, `$domain`, `$to`, `$denyallow`, `$method`, `$important`, `$redirect` (to bundled neutered resources such as GPT/adsbygoogle/GA stubs and empty VAST), `$removeparam`, `$csp`, `$popup`, `$document`, `$badfilter`, `$generichide` and more.
 - **Top-level blocking**: known popup and malvertising domains (all ad domains from level 3, trackers from level 4) redirect to a Stronguard *blocked* page. If such a page opened as a popup, the tab is closed automatically. The page offers "Allow once" and "Always allow".
 - **Cosmetic filtering**: generic rules are matched against the class and id names present in the DOM, so only relevant CSS is injected. Site-specific rules are loaded from a sharded database. CSS is injected with *user* origin, so pages can't override it. Procedural filters (`:has-text`, `:upward`, `:xpath`, `:matches-css`, `:remove()`, `:style()`…) run in the page.
-- **Scriptlets**: 40 anti-adblock, anti-popup and response-rewriting scriptlets (`set`, `aopr`, `acs`, `nowoif`, `json-prune`, `json-prune-fetch-response`, `trusted-replace-xhr-response`, `no-fetch-if`, cookie-banner `click-element`, etc.), compiled per site and level and registered only on the sites that need them.
+- **Scriptlets**: 42 anti-adblock, anti-popup and response-rewriting scriptlets (`set`, `aopr`, `acs`, `nowoif`, `json-prune`, `json-prune-fetch-response`, `trusted-replace-xhr-response`, `hls-prune`, `no-fetch-if`, cookie-banner `click-element`, etc.), compiled per site and level and registered only on the sites that need them.
 - **Popup guard** (runs before any page script): blocks `window.open` without a user gesture; allows one popup per click; requires a real link or button for cross-site popups (level 4) or blocks them all except sign-in and payment providers (level 5). It also covers synthetic link clicks and fresh iframe windows, denies notification permission prompts, and blocks back-button hijacks, `beforeunload` traps and dialog loops.
 - **Tab-under reversal**: if a page opens a new tab and immediately sends the original tab to another site, the original tab is sent back.
-- **Media ad guard**: on YouTube, the Spotify web player and Twitch, detects an ad that is playing and mutes it, or on YouTube fast-forwards and skips it, then restores your settings.
+- **Media ad guard**: watches every `<video>` and `<audio>` element. On YouTube, the Spotify web player and Twitch it uses each service's own ad markers; on any other site it recognises a player in ad mode or an on-screen ad label. It mutes the ad, fast-forwards and skips it when that is safe, then restores your settings. Google's IMA ad SDK is replaced by a stand-in that reports "no ad", and `hls-prune` cuts ad breaks out of on-demand HLS playlists (level 3).
 - **Heuristics** (skipped on large first-party apps such as YouTube, Google and social networks): removes overlay and ad-block walls and restores scrolling. Intercepts and removes invisible click-hijacking layers. Hides ad-sized cross-site iframes and sticky ad bars, and at level 5 "Sponsored"/"Advertisement" blocks.
 - **Your filters, extra lists and the element picker** compile at runtime into dynamic rules, using the same engine.
 
