@@ -1,0 +1,112 @@
+[Adblock Plus 2.0]
+! Title: Stronguard Ads
+! Description: Core advertising and ad-verification servers. Always available offline;
+!   the upstream lists (EasyList, AdGuard, HaGeZi...) do the heavy lifting.
+! Expires: 7 days
+!
+! --- Google ad stack ---
+||doubleclick.net^
+||googlesyndication.com^
+||googleadservices.com^
+||adservice.google.com^
+||pagead2.googlesyndication.com^
+||tpc.googlesyndication.com^
+||partner.googleadservices.com^
+||imasdk.googleapis.com^$third-party
+! --- Programmatic exchanges / SSPs / DSPs ---
+||adnxs.com^
+||adnxs-simple.com^
+||adsrvr.org^
+||amazon-adsystem.com^
+||criteo.com^
+||criteo.net^
+||pubmatic.com^
+||rubiconproject.com^
+||openx.net^
+||casalemedia.com^
+||indexww.com^
+||smartadserver.com^
+||adform.net^
+||adformdsp.net^
+||yieldmo.com^
+||teads.tv^
+||sharethrough.com^
+||3lift.com^
+||triplelift.com^
+||media.net^
+||bidswitch.net^
+||spotxchange.com^
+||spotx.tv^
+||springserve.com^
+||lijit.com^
+||sovrn.com^
+||33across.com^
+||gumgum.com^
+||kargo.com^
+||undertone.com^
+||yieldlab.net^
+||adition.com^
+||smaato.net^
+||contextweb.com^
+||advertising.com^
+||adtechus.com^
+||zedo.com^
+||serving-sys.com^
+||sizmek.com^
+||adroll.com^
+||quantserve.com^
+||mathtag.com^
+||turn.com^
+||bluekai.com^
+||demdex.net^
+||everesttech.net^
+||adsymptotic.com^
+||onetag-sys.com^
+||sonobi.com^
+||districtm.io^
+||emxdgt.com^
+||rhythmone.com^
+||1rx.io^
+||seedtag.com^
+||outbrain.com^$third-party
+||taboola.com^$third-party
+||revcontent.com^
+||mgid.com^
+||adblade.com^
+||contentad.net^
+||zergnet.com^
+||nativo.com^
+||ntv.io^
+! --- Ad verification / viewability beacons ---
+||moatads.com^
+||adsafeprotected.com^
+||doubleverify.com^
+||adlightning.com^
+||confiant-integrations.net^
+! --- Mobile / in-app ad SDK endpoints ---
+||applovin.com^$third-party
+||unityads.unity3d.com^
+||ads.mopub.com^
+||inmobi.com^$third-party
+||vungle.com^
+||chartboost.com^
+||adcolony.com^
+! --- Generic element hiding (safe, widely used class names) ---
+##ins.adsbygoogle
+##[id^="div-gpt-ad"]
+##[id^="google_ads_iframe"]
+##[id^="google_ads_frame"]
+##iframe[src*="doubleclick.net"]
+##iframe[src*="googlesyndication.com"]
+##a[href^="https://ad.doubleclick.net/"]
+##a[href^="https://pubads.g.doubleclick.net/"]
+##.adsbygoogle
+##.ad-slot
+##.ad-banner
+##.advertisement
+##.taboola-placeholder
+##[id^="taboola-"]
+##.OUTBRAIN
+##.ob-widget
+##[data-ad-slot]
+##[data-google-query-id]

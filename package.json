@@ -1,0 +1,21 @@
+{
+  "name": "stronguard",
+  "version": "1.0.0",
+  "description": "Multi-layer, aggressive ad and popup blocker: browser extension (Chrome, Edge, Firefox) + DNS sinkhole + filtering proxy + Windows firewall/policy hardening, all driven by one 1-5 protection level.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "stronguard": "network/bin/stronguard.js"
+  },
+  "scripts": {
+    "build": "node scripts/build.js",
+    "build:offline": "node scripts/build.js --offline",
+    "package": "node scripts/build.js --zip",
+    "start": "node network/bin/stronguard.js run",
+    "test": "node --test \"test/*.test.js\"",
+    "test:e2e": "node test/e2e/extension.e2e.js"
+  }
+}

@@ -1,0 +1,66 @@
+[Adblock Plus 2.0]
+! Title: Stronguard Popups
+! Description: Popup, popunder, push-notification and redirect ad networks.
+!   $all blocks them as scripts, frames, pages and popups, and at DNS level.
+! Expires: 7 days
+!
+||popads.net^$all
+||popcash.net^$all
+||popmyads.com^$all
+||popunder.net^$all
+||propellerads.com^$all
+||propellerclick.com^$all
+||monetag.com^$all
+||onclickads.net^$all
+||onclkds.com^$all
+||onclickmax.com^$all
+||onclickperformance.com^$all
+||onclicka.com^$all
+||adsterra.com^$all
+||adsterra.network^$all
+||exoclick.com^$all
+||exosrv.com^$all
+||exdynsrv.com^$all
+||juicyads.com^$all
+||trafficjunky.net^$all
+||trafficjunky.com^$all
+||trafficstars.com^$all
+||tsyndicate.com^$all
+||hilltopads.net^$all
+||hilltopads.com^$all
+||clickadu.com^$all
+||clickaine.com^$all
+||adcash.com^$all
+||zeropark.com^$all
+||galaksion.com^$all
+||admaven.com^$all
+||ad-maven.com^$all
+||richads.com^$all
+||rollerads.com^$all
+||evadav.com^$all
+||megapu.sh^$all
+||pushground.com^$all
+||pushhouse.io^$all
+||realsrv.com^$all
+||adtng.com^$all
+||ero-advertising.com^$all
+||plugrush.com^$all
+||clickadilla.com^$all
+||adspyglass.com^$all
+||a-ads.com^$all
+||coinzilla.com^$all
+||bitmedia.io^$all
+||adskeeper.com^$all
+||adskeeper.co.uk^$all
+||mgid.com^$popup
+||revcontent.com^$popup
+! --- Push-notification opt-in widgets (spam vector) ---
+##.onesignal-slidedown-container
+##.onesignal-bell-container
+##.onesignal-bell-launcher
+##.pushcrew-chrome-style-notification
+##.pushengage-optin
+##.izooto-optin
+##.webpushr-prompt
+##.aimtell-optin
+##.subscribers-prompt

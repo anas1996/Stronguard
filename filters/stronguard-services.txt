@@ -1,0 +1,31 @@
+[Adblock Plus 2.0]
+! Title: Stronguard Services
+! Description: Ads inside large services (YouTube, Spotify, Twitch...). Complements the
+!   uBlock/AdGuard rules; the extension's media ad guard handles ads that still play.
+! Expires: 7 days
+!
+! --- YouTube: feed, search, watch-page and Shorts ad slots ---
+youtube.com,youtubekids.com##ytd-ad-slot-renderer
+youtube.com,youtubekids.com##ytd-in-feed-ad-layout-renderer
+youtube.com,youtubekids.com##ytd-promoted-sparkles-web-renderer
+youtube.com,youtubekids.com##ytd-promoted-video-renderer
+youtube.com,youtubekids.com##ytd-display-ad-renderer
+youtube.com,youtubekids.com##ytd-companion-slot-renderer
+youtube.com,youtubekids.com##ytd-action-companion-ad-renderer
+youtube.com,youtubekids.com##ytd-player-legacy-desktop-watch-ads-renderer
+youtube.com,youtubekids.com##ytd-banner-promo-renderer
+youtube.com,youtubekids.com##ytd-statement-banner-renderer
+youtube.com,youtubekids.com##ytd-merch-shelf-renderer
+youtube.com,youtubekids.com###masthead-ad
+youtube.com,youtubekids.com###player-ads
+youtube.com,youtubekids.com##ytd-rich-item-renderer:has(> #content > ytd-ad-slot-renderer)
+youtube.com,youtubekids.com##ytd-reel-video-renderer:has(ytd-ad-slot-renderer)
+youtube.com,youtubekids.com##ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-ads"]
+youtube.com,youtubekids.com##.ytp-ad-overlay-container
+youtube.com,youtubekids.com##.ytp-ad-image-overlay
+youtube.com,youtubekids.com##.ytp-suggested-action-badge
+youtube.com##ytm-promoted-sparkles-web-renderer
+youtube.com##ytm-companion-ad-renderer
+youtube.com##ad-slot-renderer
+! "Ad blockers are not allowed" wall (the media ad guard also removes it and resumes playback)
+youtube.com##tp-yt-paper-dialog:has(ytd-enforcement-message-view-model)

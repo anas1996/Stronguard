@@ -1,0 +1,166 @@
+// Windows Firewall rules (PowerShell) that stop apps from bypassing the
+// Stronguard resolver: DNS-over-TLS/QUIC, plain DNS to other servers, and
+// hard-coded public DNS-over-HTTPS resolvers.
+
+import net from 'node:net';
+import { featuresFor } from '../../core/levels.js';
+
+export const GROUP = 'Stronguard';
+
+// Public DoH/DoT resolver addresses (IPv4 + IPv6).
+export const DOH_IPS = [
+  // Google
+  '8.8.8.8', '8.8.4.4', '2001:4860:4860::8888', '2001:4860:4860::8844', '2001:4860:4860::6464', '2001:4860:4860::64',
+  // Cloudflare
+  '1.1.1.1', '1.0.0.1', '1.1.1.2', '1.0.0.2', '1.1.1.3', '1.0.0.3', '2606:4700:4700::1111', '2606:4700:4700::1001',
+  '2606:4700:4700::1112', '2606:4700:4700::1002', '2606:4700:4700::1113', '2606:4700:4700::1003', '162.159.36.1', '162.159.46.1',
+  // Quad9
+  '9.9.9.9', '149.112.112.112', '9.9.9.10', '149.112.112.10', '9.9.9.11', '149.112.112.11', '2620:fe::fe', '2620:fe::9',
+  '2620:fe::10', '2620:fe::fe:10', '2620:fe::11', '2620:fe::fe:11',
+  // OpenDNS
+  '208.67.222.222', '208.67.220.220', '208.67.222.123', '208.67.220.123', '2620:119:35::35', '2620:119:53::53',
+  // AdGuard
+  '94.140.14.14', '94.140.15.15', '94.140.14.15', '94.140.15.16', '94.140.14.140', '94.140.14.141',
+  '2a10:50c0::ad1:ff', '2a10:50c0::ad2:ff', '2a10:50c0::bad1:ff', '2a10:50c0::bad2:ff',
+  // NextDNS, ControlD (anycast ranges)
+  '45.90.28.0/24', '45.90.30.0/24', '76.76.2.0/24', '76.76.10.0/24',
+  // CleanBrowsing
+  '185.228.168.9', '185.228.169.9', '185.228.168.10', '185.228.169.11', '185.228.168.168', '185.228.169.168',
+  // Mullvad, DNS.SB, Comodo, Yandex, AliDNS, DNSPod, dns0.eu
+  '194.242.2.2', '194.242.2.3', '194.242.2.4', '194.242.2.5', '194.242.2.6', '194.242.2.9', '185.222.222.222', '45.11.45.11',
+  '8.26.56.26', '8.20.247.20', '77.88.8.8', '77.88.8.1', '223.5.5.5', '223.6.6.6', '1.12.12.12', '120.53.53.53',
+  '193.110.81.0', '185.253.5.0',
+];
+
+// ---------------------------------------------------------------------------
+// Address-range arithmetic (BigInt for IPv6)
+
+function v4ToInt(ip) {
+  return ip.split('.').reduce((a, o) => a * 256 + Number(o), 0);
+}
+
+function intToV4(n) {
+  return [24, 16, 8, 0].map((s) => Math.floor(n / 2 ** s) % 256).join('.');
+}
+
+function v6ToBig(ip) {
+  const [head, tail = ''] = ip.split('::');
+  const h = head ? head.split(':') : [];
+  const t = tail ? tail.split(':') : [];
+  const groups = ip.includes('::') ? [...h, ...Array(8 - h.length - t.length).fill('0'), ...t] : h;
+  return groups.reduce((a, g) => (a << 16n) + BigInt(parseInt(g || '0', 16)), 0n);
+}
+
+function bigToV6(b) {
+  const parts = [];
+  for (let i = 7; i >= 0; i--) parts.push(((b >> BigInt(i * 16)) & 0xffffn).toString(16));
+  return parts.join(':');
+}
+
+// Every address of a family except loopback and the given exceptions, as "a-b" ranges.
+export function complementRanges(exceptions, family) {
+  const v6 = family === 6;
+  const max = v6 ? (1n << 128n) - 1n : 2 ** 32 - 1;
+  // Loopback is never blocked; '::' (unspecified) is not a real destination either.
+  const holes = v6 ? [[0n, 1n]] : [[v4ToInt('127.0.0.0'), v4ToInt('127.255.255.255')]];
+  for (const ip of exceptions) {
+    if (v6 && net.isIPv6(ip)) {
+      const b = v6ToBig(ip);
+      holes.push([b, b]);
+    } else if (!v6 && net.isIPv4(ip)) {
+      const n = v4ToInt(ip);
+      holes.push([n, n]);
+    }
+  }
+  holes.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  const out = [];
+  let cursor = v6 ? 0n : 0;
+  const one = v6 ? 1n : 1;
+  const fmt = v6 ? bigToV6 : intToV4;
+  for (const [lo, hi] of holes) {
+    if (lo > cursor) out.push(lo - one === cursor ? fmt(cursor) : `${fmt(cursor)}-${fmt(lo - one)}`);
+    if (hi + one > cursor) cursor = hi + one;
+  }
+  if (cursor <= max) out.push(`${fmt(cursor)}-${fmt(max)}`);
+  return out;
+}
+
+// IP addresses Stronguard itself must reach (upstreams, LAN forwarder, extra exceptions).
+export function serviceAddresses(config) {
+  const plain = [];
+  const doh = [];
+  const specs = [...(config.dns.upstreams || [])];
+  if (config.dns.localForward && config.dns.localForward.upstream) specs.push(config.dns.localForward.upstream);
+  for (const s of specs) {
+    const m = /^(https|udp|tcp)?:?\/?\/?\[?([0-9a-f.:]+?)\]?(?::\d+)?(?:\/|$)/i.exec(String(s).trim());
+    if (!m || !net.isIP(m[2])) continue;
+    (m[1] === 'https' ? doh : plain).push(m[2]);
+  }
+  for (const ip of (config.firewall && config.firewall.allowDnsServers) || []) if (net.isIP(ip)) plain.push(ip);
+  return { plain: [...new Set(plain)], doh: [...new Set(doh)] };
+}
+
+const psArray = (list) => `@(${list.map((x) => `'${x}'`).join(',')})`;
+
+function rule(name, opts) {
+  const parts = [`New-NetFirewallRule -Group $group -DisplayName '${name}'`];
+  for (const [k, v] of Object.entries(opts)) parts.push(`-${k} ${v}`);
+  parts.push('-Profile Any | Out-Null');
+  return parts.join(' ');
+}
+
+export function firewallScript(config, level, { remove = false, serveLan = false } = {}) {
+  const F = featuresFor(level);
+  const lines = [
+    '# Generated by Stronguard - Windows Firewall rules',
+    `# Level ${level}. Remove with: Get-NetFirewallRule -Group 'Stronguard' | Remove-NetFirewallRule`,
+    "$ErrorActionPreference = 'Stop'",
+    `$group = '${GROUP}'`,
+    'Get-NetFirewallRule -Group $group -ErrorAction SilentlyContinue | Remove-NetFirewallRule',
+  ];
+  if (remove) {
+    lines.push("Write-Host 'Stronguard firewall rules removed.'");
+    return `${lines.join('\r\n')}\r\n`;
+  }
+  const { plain, doh } = serviceAddresses(config);
+  const descr = (t) => `"${t}"`;
+  if (F.firewallBlockDoT) {
+    for (const proto of ['TCP', 'UDP']) {
+      lines.push(rule(`Stronguard: block DNS-over-TLS/QUIC (${proto} 853)`, {
+        Direction: 'Outbound', Action: 'Block', Protocol: proto, RemotePort: 853,
+        Description: descr('Stops apps from bypassing the Stronguard resolver with encrypted DNS.'),
+      }));
+    }
+  }
+  if (F.firewallForceDns) {
+    const v4 = complementRanges(plain, 4);
+    const v6 = complementRanges(plain, 6);
+    lines.push(`$dnsTargets = ${psArray([...v4, ...v6])}`);
+    for (const proto of ['UDP', 'TCP']) {
+      lines.push(rule(`Stronguard: force DNS through Stronguard (${proto} 53)`, {
+        Direction: 'Outbound', Action: 'Block', Protocol: proto, RemotePort: 53, RemoteAddress: '$dnsTargets',
+        Description: descr('Plain DNS may only go to the local Stronguard resolver.'),
+      }));
+    }
+  }
+  if (F.firewallBlockDoHIPs) {
+    const keep = new Set(doh);
+    const targets = DOH_IPS.filter((ip) => !keep.has(ip));
+    lines.push(`$dohTargets = ${psArray(targets)}`);
+    for (const proto of ['TCP', 'UDP']) {
+      lines.push(rule(`Stronguard: block public DNS-over-HTTPS resolvers (${proto} 443)`, {
+        Direction: 'Outbound', Action: 'Block', Protocol: proto, RemotePort: 443, RemoteAddress: '$dohTargets',
+        Description: descr('Hard-coded DoH resolvers would bypass Stronguard. Its own upstreams are excluded.'),
+      }));
+    }
+  }
+  if (serveLan) {
+    for (const proto of ['UDP', 'TCP']) {
+      lines.push(rule(`Stronguard: allow LAN devices to use the DNS shield (${proto} 53)`, {
+        Direction: 'Inbound', Action: 'Allow', Protocol: proto, LocalPort: 53, RemoteAddress: 'LocalSubnet',
+      }));
+    }
+  }
+  lines.push("Write-Host ('Stronguard firewall rules applied: ' + @(Get-NetFirewallRule -Group $group -ErrorAction SilentlyContinue).Count)");
+  return `${lines.join('\r\n')}\r\n`;
+}

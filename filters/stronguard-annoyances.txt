@@ -1,0 +1,25 @@
+[Adblock Plus 2.0]
+! Title: Stronguard Annoyances
+! Description: Anti-adblock walls and nag overlays with stable class names.
+! Expires: 7 days
+!
+##.adblock-notice
+##.adblock-modal
+##.adblock-overlay
+##.adblock-detected
+##.adblock-wall
+##.adblocker-message
+##.ad-block-message
+##.ad-blocker-notice
+##.anti-adblock
+##.antiadblock
+##.adblock-popup
+##.adblock_notice
+##.adb-overlay
+##.fc-ab-root
+##.fc-dialog-overlay
+##.tp-modal
+##.tp-backdrop
+##[class^="AdBlockDetector"]
+##[id^="adblock-notice"]
+##[id="adblock-wall"]

@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stronguard Network Shield</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2 4 6v9c0 8 5 13 12 15 7-2 12-7 12-15V6z' fill='%23ff3b5c'/%3E%3Cpath d='m10 16 4 4 8-9' stroke='%23fff' stroke-width='3' fill='none'/%3E%3C/svg%3E" />
+    <style>
+      :root {
+        --bg: #0b121c; --panel: #111b28; --panel-2: #172435; --line: #24354b; --text: #e7eef7; --muted: #93a6bd;
+        --accent: #ff3b5c; --ok: #2ecc8f; --warn: #f5b041;
+        --l1: #2ecc8f; --l2: #7bd148; --l3: #f5b041; --l4: #ff7a45; --l5: #ff3b5c;
+        color-scheme: dark;
+      }
+      @media (prefers-color-scheme: light) {
+        :root { --bg: #f4f7fb; --panel: #fff; --panel-2: #eef3f9; --line: #d6e0ec; --text: #0f1b2b; --muted: #5b6f88; color-scheme: light; }
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+      main { max-width: 1180px; margin: 0 auto; padding: 20px 16px 60px; }
+      header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+      header h1 { margin: 0; font-size: 22px; flex: 1; min-width: 220px; }
+      .pill { padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; background: var(--ok); color: #04160e; }
+      .pill.paused { background: var(--warn); }
+      .grid { display: grid; gap: 14px; grid-template-columns: repeat(12, 1fr); }
+      .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; min-width: 0; }
+      .span-12 { grid-column: span 12; } .span-8 { grid-column: span 8; } .span-6 { grid-column: span 6; } .span-4 { grid-column: span 4; } .span-3 { grid-column: span 3; }
+      @media (max-width: 900px) { .span-8, .span-6, .span-4 { grid-column: span 12; } .span-3 { grid-column: span 6; } }
+      h2 { font-size: 15px; margin: 0 0 10px; }
+      .muted { color: var(--muted); }
+      .stat b { display: block; font-size: 26px; }
+      .stat span { color: var(--muted); font-size: 12px; }
+      button { font: inherit; cursor: pointer; border: 0; border-radius: 9px; padding: 7px 12px; background: var(--accent); color: #fff; font-weight: 600; }
+      button.ghost { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
+      button.sm { padding: 3px 8px; font-size: 12px; }
+      input[type=text] { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 9px; padding: 7px 10px; font: inherit; min-width: 0; }
+      .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      .slider { width: 100%; -webkit-appearance: none; appearance: none; height: 8px; border-radius: 8px; outline: none; margin: 12px 0 4px;
+        background: linear-gradient(90deg, var(--l1), var(--l2), var(--l3), var(--l4), var(--l5)); }
+      .slider::-webkit-slider-thumb { -webkit-appearance: none; width: 24px; height: 24px; border-radius: 50%; background: #fff; border: 3px solid var(--lc, var(--l3)); cursor: grab; }
+      .slider::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 3px solid var(--lc, var(--l3)); }
+      .ticks { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+      .lvlname { font-weight: 700; color: var(--lc, var(--l3)); }
+      ul.adds { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+      table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+      td.dom { white-space: normal; word-break: break-all; }
+      th { color: var(--muted); font-weight: 600; }
+      .tablewrap { overflow-x: auto; max-height: 520px; overflow-y: auto; }
+      .st-blocked, .st-cname-blocked { color: var(--accent); font-weight: 600; }
+      .st-cached { color: var(--muted); }
+      .st-error { color: var(--warn); }
+      .bars { display: flex; align-items: flex-end; gap: 3px; height: 90px; }
+      .bar { flex: 1; background: var(--panel-2); border-radius: 3px 3px 0 0; position: relative; min-height: 2px; }
+      .bar i { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); border-radius: 3px 3px 0 0; }
+      .toplist div { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-bottom: 1px dashed var(--line); }
+      .toplist span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .ok { color: var(--ok); } .bad { color: var(--warn); }
+      #checkResult { margin-top: 8px; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <svg width="34" height="34" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2 4 6v9c0 8 5 13 12 15 7-2 12-7 12-15V6z" fill="#ff3b5c" /><path d="m10 16 4 4 8-9" stroke="#fff" stroke-width="3" fill="none" /></svg>
+        <h1>Stronguard Network Shield</h1>
+        <span id="state" class="pill">Active</span>
+        <button id="pause5" class="ghost">Pause 5 min</button>
+        <button id="pause60" class="ghost">Pause 1 h</button>
+        <button id="resume" hidden>Resume</button>
+      </header>
+
+      <div class="grid">
+        <section class="card span-8">
+          <h2>Protection level</h2>
+          <div class="row"><span class="lvlname" id="lvlName">…</span><span class="muted" id="lvlTag"></span></div>
+          <input type="range" min="1" max="5" step="1" id="level" class="slider" aria-label="Protection level" />
+          <div class="ticks"><span>1 Relaxed</span><span>2 Standard</span><span>3 Aggressive</span><span>4 Hardcore</span><span>5 Nuclear</span></div>
+          <ul class="adds" id="adds"></ul>
+        </section>
+        <section class="card span-4">
+          <h2>Check a domain</h2>
+          <div class="row"><input type="text" id="checkInput" placeholder="ads.example.com" style="flex: 1" /><button id="checkBtn">Check</button></div>
+          <div id="checkResult" class="muted"></div>
+          <h2 style="margin-top: 16px">Engine</h2>
+          <div id="engine" class="muted small"></div>
+        </section>
+
+        <section class="card span-3 stat"><b id="sQueries">0</b><span>DNS queries</span></section>
+        <section class="card span-3 stat"><b id="sBlocked">0</b><span>blocked (<span id="sPct">0</span>%)</span></section>
+        <section class="card span-3 stat"><b id="sCname">0</b><span>CNAME-cloaked trackers caught</span></section>
+        <section class="card span-3 stat"><b id="sProxy">0</b><span>proxy connections blocked</span></section>
+
+        <section class="card span-6">
+          <h2>Last 24 hours</h2>
+          <div class="bars" id="bars"></div>
+          <div class="muted" style="font-size: 12px; margin-top: 6px">Grey: queries · red: blocked</div>
+        </section>
+        <section class="card span-3"><h2>Top blocked</h2><div class="toplist" id="topBlocked"></div></section>
+        <section class="card span-3"><h2>Top clients</h2><div class="toplist" id="topClients"></div></section>
+
+        <section class="card span-12">
+          <div class="row" style="justify-content: space-between">
+            <h2>Query log</h2>
+            <div class="row"><input type="text" id="filter" placeholder="Filter (domain, status, client)" /><label class="muted"><input type="checkbox" id="onlyBlocked" /> blocked only</label></div>
+          </div>
+          <div class="tablewrap">
+            <table>
+              <thead><tr><th>Time</th><th>Client</th><th>Domain</th><th>Type</th><th>Status</th><th>List</th><th>ms</th><th></th></tr></thead>
+              <tbody id="log"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="card span-6">
+          <h2>Your allowlist / blocklist</h2>
+          <div class="row"><input type="text" id="domainInput" placeholder="example.com" style="flex: 1" /><button id="addAllow" class="ghost">Allow</button><button id="addBlock">Block</button></div>
+          <div class="toplist" id="userLists" style="margin-top: 10px"></div>
+        </section>
+        <section class="card span-6">
+          <div class="row" style="justify-content: space-between"><h2>Filter lists</h2><button id="update" class="ghost sm">Update now</button></div>
+          <div class="tablewrap" style="max-height: 300px">
+            <table><thead><tr><th>List</th><th>Level</th><th>Domains</th><th>Updated</th></tr></thead><tbody id="lists"></tbody></table>
+          </div>
+        </section>
+      </div>
+    </main>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const COLORS = ['--l1', '--l2', '--l3', '--l4', '--l5'];
+      let levels = [];
+      let dragging = false;
+      const fmt = (n) => Number(n || 0).toLocaleString();
+      const api = async (path, body) => {
+        const res = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {});
+        return res.json();
+      };
+      const el = (tag, text, cls) => {
+        const e = document.createElement(tag);
+        if (text !== undefined) e.textContent = text;
+        if (cls) e.className = cls;
+        return e;
+      };
+
+      function paintLevel(level) {
+        const info = levels[level - 1];
+        if (!info) return;
+        document.documentElement.style.setProperty('--lc', `var(${COLORS[level - 1]})`);
+        $('lvlName').textContent = `${level} · ${info.name}`;
+        $('lvlTag').textContent = info.tagline;
+        const ul = $('adds');
+        ul.textContent = '';
+        for (const l of levels.slice(0, level).reverse()) for (const a of l.adds) ul.appendChild(el('li', a));
+      }
+
+      function renderTop(id, list) {
+        const box = $(id);
+        box.textContent = '';
+        if (!list.length) box.appendChild(el('div', 'Nothing yet', 'muted'));
+        for (const { key, count } of list) {
+          const d = el('div');
+          d.append(el('span', key), el('span', fmt(count), 'muted'));
+          box.appendChild(d);
+        }
+      }
+
+      async function refreshStatus() {
+        const s = await api('/api/status');
+        if (!dragging) {
+          $('level').value = s.level;
+          paintLevel(s.level);
+        }
+        $('state').textContent = s.paused ? `Paused until ${new Date(s.pausedUntil).toLocaleTimeString()}` : 'Active';
+        $('state').classList.toggle('paused', s.paused);
+        $('resume').hidden = !s.paused;
+        $('sQueries').textContent = fmt(s.stats.queries);
+        $('sBlocked').textContent = fmt(s.stats.blocked);
+        $('sPct').textContent = s.stats.blockedPercent;
+        $('sCname').textContent = fmt(s.stats.cnameBlocked);
+        $('sProxy').textContent = fmt(s.stats.proxyBlocked);
+        const max = Math.max(1, ...s.stats.hourly.map((h) => h.queries));
+        const bars = $('bars');
+        bars.textContent = '';
+        for (const h of s.stats.hourly) {
+          const b = el('div', undefined, 'bar');
+          b.style.height = `${(h.queries / max) * 100}%`;
+          b.title = `${h.queries} queries, ${h.blocked} blocked`;
+          const i = el('i');
+          i.style.height = h.queries ? `${(h.blocked / h.queries) * 100}%` : '0';
+          b.appendChild(i);
+          bars.appendChild(b);
+        }
+        const e = s.engine;
+        $('engine').textContent = `${fmt(e.domains)} blocked domains · ${fmt(e.patterns)} patterns · lists loaded ${e.loadedAt ? new Date(e.loadedAt).toLocaleString() : '—'}` +
+          (s.dns ? ` · upstreams: ${s.dns.upstreams.map((u) => `${u.upstream} ${u.healthy ? '✓' : '✗'}`).join(', ')}` : '');
+        const tb = $('lists');
+        tb.textContent = '';
+        for (const l of e.lists) {
+          const tr = el('tr');
+          tr.append(el('td', l.title), el('td', `${l.level}+`), el('td', l.ok ? fmt(l.rules) : 'unavailable', l.ok ? 'ok' : 'bad'), el('td', l.fetchedAt ? new Date(l.fetchedAt).toLocaleDateString() : '—'));
+          tb.appendChild(tr);
+        }
+        const ul = $('userLists');
+        ul.textContent = '';
+        for (const [kind, list] of [['allow', s.allowlist], ['block', s.blocklist]]) {
+          for (const d of list) {
+            const row = el('div');
+            const rm = el('button', 'remove', 'ghost sm');
+            rm.onclick = async () => {
+              await api(`/api/un${kind}`, { domain: d });
+              refreshStatus();
+            };
+            row.append(el('span', `${kind === 'allow' ? '✓ allowed' : '⛔ blocked'}  ${d}`), rm);
+            ul.appendChild(row);
+          }
+        }
+      }
+
+      async function refreshTop() {
+        const t = await api('/api/top?n=10');
+        renderTop('topBlocked', t.blocked);
+        renderTop('topClients', t.clients);
+      }
+
+      async function refreshLog() {
+        const f = $('onlyBlocked').checked ? 'blocked' : $('filter').value.trim();
+        const rows = await api(`/api/log?limit=300&filter=${encodeURIComponent(f)}`);
+        const tb = $('log');
+        tb.textContent = '';
+        for (const r of rows) {
+          const tr = el('tr');
+          const blocked = r.status.includes('blocked');
+          const btn = el('button', blocked ? 'Allow' : 'Block', `sm ${blocked ? 'ghost' : ''}`);
+          btn.onclick = async () => {
+            await api(blocked ? '/api/allow' : '/api/block', { domain: r.name });
+            refreshStatus();
+          };
+          const action = el('td');
+          action.appendChild(btn);
+          tr.append(
+            el('td', new Date(r.time).toLocaleTimeString()), el('td', r.client), el('td', r.name, 'dom'), el('td', r.type),
+            el('td', r.status, `st-${r.status}`), el('td', r.list || ''), el('td', r.ms), action,
+          );
+          tb.appendChild(tr);
+        }
+      }
+
+      $('level').addEventListener('input', (e) => {
+        dragging = true;
+        paintLevel(Number(e.target.value));
+      });
+      $('level').addEventListener('change', async (e) => {
+        await api('/api/level', { level: Number(e.target.value) });
+        dragging = false;
+        refreshStatus();
+      });
+      $('pause5').onclick = () => api('/api/pause', { minutes: 5 }).then(refreshStatus);
+      $('pause60').onclick = () => api('/api/pause', { minutes: 60 }).then(refreshStatus);
+      $('resume').onclick = () => api('/api/resume', {}).then(refreshStatus);
+      $('update').onclick = async () => {
+        $('update').textContent = 'Updating…';
+        await api('/api/update', {});
+        $('update').textContent = 'Update now';
+        refreshStatus();
+      };
+      $('checkBtn').onclick = async () => {
+        const d = $('checkInput').value.trim();
+        if (!d) return;
+        const r = await api(`/api/check?domain=${encodeURIComponent(d)}`);
+        $('checkResult').textContent = r.blocked ? `⛔ Blocked by ${r.list} (rule: ${r.rule})` : r.reason ? `✓ Allowed by ${r.list} (rule: ${r.rule})` : '✓ Not blocked';
+      };
+      $('checkInput').addEventListener('keydown', (e) => e.key === 'Enter' && $('checkBtn').click());
+      for (const [id, path] of [['addAllow', '/api/allow'], ['addBlock', '/api/block']]) {
+        $(id).onclick = async () => {
+          const d = $('domainInput').value.trim();
+          if (!d) return;
+          await api(path, { domain: d });
+          $('domainInput').value = '';
+          refreshStatus();
+        };
+      }
+      $('filter').addEventListener('input', refreshLog);
+      $('onlyBlocked').addEventListener('change', refreshLog);
+
+      (async () => {
+        levels = await api('/api/levels');
+        await refreshStatus();
+        refreshTop();
+        refreshLog();
+        setInterval(refreshStatus, 3000);
+        setInterval(refreshTop, 5000);
+        setInterval(refreshLog, 2000);
+      })();
+    </script>
+  </body>
+</html>
