@@ -16,6 +16,7 @@ export const LEVELS = [
     adds: [
       'EasyList, EasyPrivacy and uBlock filter lists',
       'Element hiding and anti-adblock scriptlets',
+      'YouTube ads stripped from the player (and skipped/muted if one slips through); Spotify and Twitch ads muted',
       'Popups opened without a click are blocked',
       'Known popup/malvertising networks blocked as pages, their tabs auto-closed',
       'DNS: core ad and tracker domains, CNAME-cloaked trackers unmasked',
@@ -99,6 +100,8 @@ export function featuresFor(level) {
     popupRequireLinkTarget: l >= 4,
     tabUnderRevert: l >= 4,
     popupBlockCrossSite: l >= 5,
+    // --- browser: streaming services (YouTube, Spotify, Twitch...) ---
+    mediaAdGuard: l >= 1,
     // --- browser: annoyances ---
     denyNotifications: l >= 2,
     blockHistoryHijack: l >= 2,

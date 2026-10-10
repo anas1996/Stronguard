@@ -42,11 +42,12 @@ function render() {
   $('sReq').textContent = state.matched === null ? '–' : fmt(state.matched);
   $('sPop').textContent = fmt(sum(tabStats, ['popup', 'popupTabsClosed', 'tabUnders']));
   $('sHid').textContent = fmt(sum(tabStats, ['overlay', 'clickjack', 'hidden', 'picked']));
+  $('sMedia').textContent = fmt(sum(tabStats, ['mediaAd']));
   const totalPop = sum(total, ['popup', 'popupTabsClosed', 'tabUnders']);
   const totalRemoved = sum(total, ['overlay', 'clickjack', 'hidden', 'picked']);
   const extra = sum(total, ['notification', 'dialog', 'beforeunload', 'history']);
   $('totals').textContent =
-    `All time: ${total.requests ? `${fmt(total.requests)} requests, ` : ''}${fmt(totalPop)} popups, ${fmt(totalRemoved)} elements, ${fmt(extra)} nags blocked`;
+    `All time: ${total.requests ? `${fmt(total.requests)} requests, ` : ''}${fmt(totalPop)} popups, ${fmt(total.mediaAd || 0)} video/audio ads, ${fmt(totalRemoved)} elements, ${fmt(extra)} nags blocked`;
 
   const warnings = Object.values(state.warnings || {});
   $('warn').hidden = !warnings.length;

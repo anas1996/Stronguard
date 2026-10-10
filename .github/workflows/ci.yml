@@ -51,6 +51,9 @@ jobs:
             [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $f), [ref]$tokens, [ref]$errors) | Out-Null
             if ($errors.Count) { $errors | Format-List; throw "Parse errors in $f" }
           }
+      - name: Spotify ad muter self-test (Windows PowerShell 5.1)
+        shell: powershell
+        run: .\windows\spotify-muter.ps1 -SelfTest
       - name: Install the network shield (level 4, Windows ads off, hosts fallback)
         shell: powershell
         run: .\windows\install.ps1 -Level 4 -WindowsAds -Hosts -NoOpen
@@ -69,6 +72,7 @@ jobs:
           if ((Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Edge').DnsOverHttpsMode -ne 'off') { throw 'Edge DoH policy missing' }
           if ((Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings').AutoConfigURL -ne 'http://127.0.0.1:8118/proxy.pac') { throw 'PAC not set' }
           if (-not (Select-String -Path "$env:SystemRoot\System32\drivers\etc\hosts" -Pattern 'Stronguard' -Quiet)) { throw 'hosts block missing' }
+          if (-not (Get-ScheduledTask -TaskName 'Stronguard Spotify ad muter' -ErrorAction SilentlyContinue)) { throw 'Spotify muter task missing' }
           $status = Invoke-RestMethod http://127.0.0.1:8080/api/status
           "Level $($status.level): $($status.engine.domains) blocked domains, $($status.stats.queries) queries, $($status.stats.blocked) blocked"
           node network/bin/stronguard.js status
@@ -91,6 +95,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           if (Get-ScheduledTask -TaskName Stronguard -ErrorAction SilentlyContinue) { throw 'scheduled task still present' }
+          if (Get-ScheduledTask -TaskName 'Stronguard Spotify ad muter' -ErrorAction SilentlyContinue) { throw 'Spotify muter task still present' }
           if (@(Get-NetFirewallRule -Group Stronguard -ErrorAction SilentlyContinue).Count) { throw 'firewall rules left behind' }
           if (Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Google\Chrome' -Name DefaultPopupsSetting -ErrorAction SilentlyContinue) { throw 'Chrome policy left behind' }
           if (Select-String -Path "$env:SystemRoot\System32\drivers\etc\hosts" -Pattern 'Stronguard' -Quiet) { throw 'hosts block left behind' }

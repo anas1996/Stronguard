@@ -7,6 +7,8 @@
 // tests can visit "news.test", "exoclick.com", etc. without internet access.
 
 import http from 'node:http';
+import https from 'node:https';
+import fsSync from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs/promises';
@@ -64,15 +66,49 @@ const PAGES = {
   'hijack.test/': `<!doctype html><html><body><p>video page</p>
     <a id="layer" href="http://adsterra.com/go" target="_blank" style="position:fixed;inset:0;opacity:0;z-index:2147483647"></a>
     </body></html>`,
+  // Mimics YouTube: player responses with ad slots, a Shorts sequence with an ad
+  // entry, a feed ad slot, and an ad that starts playing in the main <video>.
+  'www.youtube.com/watch': `<!doctype html><html><body>
+    <div id="movie_player" class="html5-video-player"><video class="html5-main-video"></video>
+      <button class="ytp-skip-ad-button" onclick="window.__skipped = (window.__skipped || 0) + 1">Skip</button></div>
+    <ytd-ad-slot-renderer id="feedad" style="display:block">feed ad</ytd-ad-slot-renderer>
+    <script>
+      window.__r = {};
+      fetch('/youtubei/v1/player?key=f', { method: 'POST', body: '{}' }).then((r) => r.text()).then((t) => (window.__r.fetch = t));
+      const x = new XMLHttpRequest();
+      x.open('POST', '/youtubei/v1/player?key=x');
+      x.onload = () => (window.__r.xhr = x.responseText);
+      x.send('{}');
+      fetch('/youtubei/v1/reel/reel_watch_sequence?key=s').then((r) => r.json()).then((j) => (window.__r.shorts = j));
+    </script></body></html>`,
+  // Mimics the Spotify web player: a detached <audio> element and the tab title.
+  'open.spotify.com/': `<!doctype html><html><head><title>Song • Artist</title></head><body><div id="root">player</div>
+    <script>window.__audio = document.createElement('audio'); window.__audio.play().catch(() => {});</script></body></html>`,
   'tabunder.test/': `<!doctype html><html><body><button id="go" onclick="
       window.open(location.href, '_blank');
       setTimeout(() => { location.href = 'http://lander.test/'; }, 30);
     ">watch</button></body></html>`,
 };
 
+const PLAYER_RESPONSE = JSON.stringify({
+  responseContext: {},
+  playabilityStatus: { status: 'OK' },
+  adPlacements: [{ adPlacementRenderer: { config: { kind: 'AD_PLACEMENT_KIND_START' } } }],
+  playerAds: [{ playerLegacyDesktopWatchAdsRenderer: {} }],
+  adSlots: [{ adSlotRenderer: {} }],
+  videoDetails: { videoId: 'abc' },
+});
+const SHORTS_RESPONSE = JSON.stringify({
+  entries: [
+    { command: { reelWatchEndpoint: { videoId: 'v1' } } },
+    { command: { reelWatchEndpoint: { adClientParams: { isAd: true } } } },
+    { command: { reelWatchEndpoint: { videoId: 'v2' } } },
+  ],
+});
+
 const hits = [];
 function startServer() {
-  const server = http.createServer((req, res) => {
+  const handler = (req, res) => {
     let url;
     try {
       url = new URL(req.url.startsWith('http') ? req.url : `http://${req.headers.host}${req.url}`);
@@ -82,15 +118,33 @@ function startServer() {
     }
     hits.push(url.href);
     const key = `${url.hostname}${url.pathname}`;
-    if (PAGES[key]) {
+    if (url.pathname.startsWith('/youtubei/v1/player')) {
+      res.writeHead(200, { 'Content-Type': 'application/json' }).end(PLAYER_RESPONSE);
+    } else if (url.pathname.startsWith('/youtubei/v1/reel/reel_watch_sequence')) {
+      res.writeHead(200, { 'Content-Type': 'application/json' }).end(SHORTS_RESPONSE);
+    } else if (PAGES[key]) {
       res.writeHead(200, { 'Content-Type': 'text/html' }).end(PAGES[key]);
     } else if (url.pathname.endsWith('.js')) {
       res.writeHead(200, { 'Content-Type': 'application/javascript' }).end(`window.__scripts = (window.__scripts || []).concat(${JSON.stringify(url.href)});`);
     } else {
       res.writeHead(200, { 'Content-Type': 'text/html' }).end(`<!doctype html><title>${url.hostname}</title><p>${url.href}</p>`);
     }
+  };
+  const server = http.createServer(handler);
+  // HTTPS: terminate TLS for every host with a test-only certificate
+  // (Chromium runs with ignoreHTTPSErrors). Needed for HSTS-preloaded sites.
+  const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
+  const tls = https.createServer(
+    { key: fsSync.readFileSync(path.join(fixtures, 'test-key.pem')), cert: fsSync.readFileSync(path.join(fixtures, 'test-cert.pem')) },
+    (req, res) => {
+      req.url = `https://${req.headers.host}${req.url}`;
+      handler(req, res);
+    },
+  );
+  server.on('connect', (req, socket) => {
+    socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+    tls.emit('connection', socket);
   });
-  server.on('connect', (req, socket) => socket.end('HTTP/1.1 403 Forbidden\r\n\r\n'));
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server)));
 }
 
@@ -134,6 +188,7 @@ async function main() {
   const context = await chromium.launchPersistentContext(userDataDir, {
     headless: true,
     channel: 'chromium',
+    ignoreHTTPSErrors: true,
     args: [
       `--disable-extensions-except=${EXT}`,
       `--load-extension=${EXT}`,
@@ -302,6 +357,76 @@ async function main() {
       await send({ t: 'ui:toggleSite', hostname: 'news.test', allowed: false });
       assert.equal(b.length, 0, `blocked on allowlisted site: ${b}`);
       assert.notEqual(d, 'none');
+    });
+
+    console.log('\nStreaming services');
+
+    const yt = await context.newPage();
+    await yt.goto('https://www.youtube.com/watch');
+
+    await test('YouTube: ad slots stripped from player responses (fetch + XHR)', async () => {
+      const ok = await until(() => yt.evaluate(() => window.__r.fetch && window.__r.xhr), 6000);
+      assert.ok(ok, 'player responses never arrived');
+      const r = await yt.evaluate(() => window.__r);
+      assert.ok(!r.fetch.includes('"adPlacements"') && !r.fetch.includes('"adSlots"'), `fetch: ${r.fetch}`);
+      assert.ok(!r.xhr.includes('"adPlacements"'), `xhr: ${r.xhr}`);
+      assert.ok(r.fetch.includes('"videoDetails"'), 'content must survive');
+    });
+
+    await test('YouTube: Shorts ad entries removed', async () => {
+      const shorts = await until(() => yt.evaluate(() => window.__r.shorts), 6000);
+      assert.deepEqual(shorts.entries.map((e) => e.command.reelWatchEndpoint.videoId), ['v1', 'v2']);
+    });
+
+    await test('YouTube: feed ad slots hidden', async () => {
+      const hidden = await until(() => yt.evaluate(() => getComputedStyle(document.getElementById('feedad')).display === 'none'));
+      assert.ok(hidden);
+    });
+
+    await test('YouTube: a playing ad is muted, fast-forwarded and skipped, then state restored', async () => {
+      await yt.evaluate(() => {
+        const v = document.querySelector('video');
+        v.muted = false;
+        v.playbackRate = 1.25;
+        document.getElementById('movie_player').classList.add('ad-showing');
+      });
+      const during = await until(() => yt.evaluate(() => {
+        const v = document.querySelector('video');
+        return v.muted && v.playbackRate === 16 && window.__skipped > 0 ? { muted: v.muted, rate: v.playbackRate } : null;
+      }), 3000);
+      assert.ok(during, 'ad was not muted / fast-forwarded / skipped');
+      await yt.evaluate(() => document.getElementById('movie_player').classList.remove('ad-showing'));
+      const after = await until(() => yt.evaluate(() => {
+        const v = document.querySelector('video');
+        return !v.muted && v.playbackRate === 1.25;
+      }), 3000);
+      assert.ok(after, 'mute/speed not restored after the ad');
+    });
+
+    await test('YouTube: "ad blockers are not allowed" wall removed', async () => {
+      await yt.evaluate(() => {
+        const d = document.createElement('tp-yt-paper-dialog');
+        d.id = 'wall';
+        d.appendChild(document.createElement('ytd-enforcement-message-view-model'));
+        document.body.appendChild(d);
+      });
+      const gone = await until(() => yt.evaluate(() => !document.getElementById('wall')), 3000);
+      assert.ok(gone);
+    });
+    await yt.close();
+
+    await test('Spotify web player: audio ads muted, sound restored after', async () => {
+      const sp = await context.newPage();
+      await sp.goto('https://open.spotify.com/');
+      await sp.waitForTimeout(400);
+      assert.equal(await sp.evaluate(() => window.__audio.muted), false, 'music must not be muted');
+      await sp.evaluate(() => (document.title = 'Advertisement'));
+      const muted = await until(() => sp.evaluate(() => window.__audio.muted), 3000);
+      await sp.evaluate(() => (document.title = 'Next Song • Artist'));
+      const restored = await until(() => sp.evaluate(() => !window.__audio.muted), 3000);
+      await sp.close();
+      assert.ok(muted, 'ad was not muted');
+      assert.ok(restored, 'sound not restored after the ad');
     });
 
     console.log('\nLevel 4');

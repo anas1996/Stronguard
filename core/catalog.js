@@ -26,6 +26,7 @@ const HAGEZI = (f) => [
 export const CATALOG = [
   // ---- Stronguard's own lists (shipped in /filters, always available offline) ----
   { id: 'stronguard-ads', title: 'Stronguard Ads', level: 1, category: 'ads', targets: ['extension', 'dns'], builtin: 'filters/stronguard-ads.txt' },
+  { id: 'stronguard-services', title: 'Stronguard Services (YouTube, Spotify, Twitch)', level: 1, category: 'services', targets: ['extension'], builtin: 'filters/stronguard-services.txt' },
   { id: 'stronguard-popups', title: 'Stronguard Popups', level: 1, category: 'popups', targets: ['extension', 'dns'], builtin: 'filters/stronguard-popups.txt' },
   { id: 'stronguard-privacy', title: 'Stronguard Privacy', level: 2, category: 'privacy', targets: ['extension'], builtin: 'filters/stronguard-privacy.txt' },
   { id: 'stronguard-annoyances', title: 'Stronguard Annoyances', level: 3, category: 'annoyances', targets: ['extension'], builtin: 'filters/stronguard-annoyances.txt' },

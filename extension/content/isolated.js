@@ -639,7 +639,18 @@
     if (n) bump('hidden', n);
   }
 
+  // Large first-party apps: generic heuristics (overlay/click-hijack/ad-size
+  // guessing) could only misfire there; filter lists and service handling still run.
+  const APPS = [
+    'youtube.com', 'youtubekids.com', 'spotify.com', 'twitch.tv', 'netflix.com', 'primevideo.com', 'disneyplus.com',
+    'hulu.com', 'max.com', 'google.com', 'gmail.com', 'facebook.com', 'instagram.com', 'x.com', 'twitter.com',
+    'reddit.com', 'linkedin.com', 'whatsapp.com', 'messenger.com', 'discord.com', 'slack.com', 'github.com',
+    'microsoft.com', 'live.com', 'office.com', 'apple.com', 'icloud.com', 'amazon.com', 'figma.com', 'notion.so',
+  ];
+  const isApp = APPS.some((d) => location.hostname === d || location.hostname.endsWith(`.${d}`));
+
   function startHeuristics() {
+    if (isApp) return;
     const tasks = [];
     if (F.overlayKiller) tasks.push(overlayKiller);
     if (F.clickjackKiller) {

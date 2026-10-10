@@ -75,6 +75,7 @@ function renderStats() {
     ['Requests blocked', t.requests],
     ['Popups blocked', (t.popup || 0) + (t.popupTabsClosed || 0)],
     ['Tab-unders reverted', t.tabUnders],
+    ['Video/audio ads skipped or muted', t.mediaAd],
     ['Overlays removed', t.overlay],
     ['Click hijacks removed', t.clickjack],
     ['Elements hidden', (t.hidden || 0) + (t.picked || 0)],

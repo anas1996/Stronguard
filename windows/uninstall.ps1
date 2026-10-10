@@ -75,6 +75,15 @@ Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Write-Ok 'Service removed'
 
+Write-Step 'Removing the Spotify ad muter'
+Unregister-ScheduledTask -TaskName 'Stronguard Spotify ad muter' -Confirm:$false -ErrorAction SilentlyContinue
+Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" |
+  Where-Object { $_.CommandLine -like '*spotify-muter.ps1*' -and $_.CommandLine -notlike '*-Unmute*' } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+# A muter stopped mid-ad would leave Spotify muted in the volume mixer.
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'spotify-muter.ps1') -Unmute 2>$null
+Write-Ok 'Spotify ad muter removed'
+
 Write-Step 'Removing firewall rules'
 Get-NetFirewallRule -Group 'Stronguard' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 Write-Ok 'Firewall rules removed'

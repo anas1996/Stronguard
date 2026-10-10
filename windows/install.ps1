@@ -13,7 +13,9 @@
        blocking, notification blocking, tracking prevention, built-in DoH off.
     5. System proxy auto-config (PAC) so browsers that use their own encrypted
        DNS are still filtered by hostname.
-    6. Optional: Windows' own ads and suggestions off, hosts-file fallback,
+    6. Spotify desktop app: audio ads muted in the Windows volume mixer
+       (per-user helper; music and podcasts are untouched).
+    7. Optional: Windows' own ads and suggestions off, hosts-file fallback,
        and serving the whole home network.
 
   Run it again at any time to change options. Undo everything with uninstall.ps1.
@@ -34,6 +36,7 @@ param(
   [switch] $WindowsAds,
   [switch] $Hosts,
   [switch] $ServeLan,
+  [switch] $NoSpotifyMuter,
   [switch] $NoOpen,
   [string] $DataDir = (Join-Path $env:ProgramData 'Stronguard')
 )
@@ -208,6 +211,24 @@ if (-not $NoProxy) {
   }
   Set-ItemProperty -Path $inet -Name AutoConfigURL -Value 'http://127.0.0.1:8118/proxy.pac'
   Write-Ok 'Browsers and apps using system proxy settings now go through the Stronguard filter'
+}
+
+# --- Spotify desktop ad muter ----------------------------------------------------
+if (-not $NoSpotifyMuter) {
+  Write-Step 'Installing the Spotify desktop ad muter'
+  $muterTask = 'Stronguard Spotify ad muter'
+  $muter = Join-Path $PSScriptRoot 'spotify-muter.ps1'
+  $user = "$env:USERDOMAIN\$env:USERNAME"
+  $muterAction = New-ScheduledTaskAction -Execute 'powershell.exe' `
+    -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$muter`""
+  $muterTrigger = New-ScheduledTaskTrigger -AtLogOn -User $user
+  $muterSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+    -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -RestartCount 10 -RestartInterval (New-TimeSpan -Minutes 1)
+  $muterPrincipal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
+  Register-ScheduledTask -TaskName $muterTask -Action $muterAction -Trigger $muterTrigger -Settings $muterSettings `
+    -Principal $muterPrincipal -Description 'Mutes audio ads in the Spotify desktop app.' -Force | Out-Null
+  try { Start-ScheduledTask -TaskName $muterTask } catch { }
+  Write-Ok "Runs at logon for $user; mutes Spotify only while an ad plays"
 }
 
 # --- Hosts file ----------------------------------------------------------------

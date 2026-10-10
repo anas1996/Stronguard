@@ -258,3 +258,24 @@ test('catalog: superseded DNS lists are skipped, every list has a source', () =>
   assert.ok(!ids.includes('hagezi-pro') && !ids.includes('hagezi-pro-plus'));
   for (const e of CATALOG) assert.ok(e.builtin || (e.urls && e.urls.length), e.id);
 });
+
+// ---------------------------------------------------------------------------
+// Scriptlet helpers (pure functions, run outside the browser)
+
+test('json pruning: plain paths, [] iteration, [-] array-entry removal, required paths', async () => {
+  const { helperSource } = await import('../extension/scriptlets/library.js');
+  const h = new Function(`${helperSource()}; return { sgJsonPruner, sgPrunePaths, sgReplacePattern };`)();
+  const player = { adPlacements: [1], playerAds: [2], videoDetails: { id: 'x' } };
+  assert.equal(h.sgJsonPruner('adPlacements playerAds', 'videoDetails')(player), true);
+  assert.deepEqual(player, { videoDetails: { id: 'x' } });
+  const notPlayer = { adPlacements: [1] };
+  assert.equal(h.sgJsonPruner('adPlacements', 'videoDetails')(notPlayer), false, 'required path missing: untouched');
+  const shorts = { entries: [{ c: { id: 1 } }, { c: { ad: { isAd: true } } }, { c: { id: 2 } }] };
+  h.sgPrunePaths(shorts, ['entries.[-].c.ad.isAd']);
+  assert.deepEqual(shorts.entries, [{ c: { id: 1 } }, { c: { id: 2 } }]);
+  const list = { items: [{ ad: 1, keep: 1 }, { ad: 2, keep: 2 }] };
+  h.sgPrunePaths(list, ['items.[].ad']);
+  assert.deepEqual(list.items, [{ keep: 1 }, { keep: 2 }]);
+  assert.equal('{"adSlots":1,"adSlots":2}'.replace(h.sgReplacePattern('"adSlots"'), '"no_ads"'), '{"no_ads":1,"no_ads":2}');
+  assert.equal('a"adPlacements":[x],"adSlots"b'.replace(h.sgReplacePattern('/"adPlacements.*?("adSlots")/gms'), '$1'), 'a"adSlots"b');
+});

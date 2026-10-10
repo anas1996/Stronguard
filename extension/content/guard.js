@@ -314,4 +314,123 @@
       });
     }
   }
+  // --------------------------------------------------------------------------
+  // Streaming services: when an ad still plays (lists missed it), mute it and,
+  // where the service allows, fast-forward / skip it. State is restored after.
+
+  const onHost = (domains) => domains.some((d) => location.hostname === d || location.hostname.endsWith('.' + d));
+  const anyMatch = (selectors) => {
+    for (const sel of selectors) {
+      try {
+        if (document.querySelector(sel)) return true;
+      } catch (e) {
+        /* invalid selector */
+      }
+    }
+    return false;
+  };
+
+  const SERVICES = [
+    {
+      name: 'youtube',
+      domains: ['youtube.com', 'youtube-nocookie.com', 'youtubekids.com'],
+      adActive: () => anyMatch(['.html5-video-player.ad-showing', '.html5-video-player.ad-interrupting']),
+      // The ad plays in the same <video> as the content: seek it to the end.
+      fastForward: (el) => !!(el.closest && el.closest('.html5-video-player.ad-showing, .html5-video-player.ad-interrupting')),
+      skip: ['.ytp-skip-ad-button', '.ytp-ad-skip-button', '.ytp-ad-skip-button-modern', '.ytp-ad-skip-button-slot button', '.ytp-ad-overlay-close-button'],
+      cleanup() {
+        // "Ad blockers are not allowed on YouTube" wall
+        const wall = document.querySelector('ytd-enforcement-message-view-model');
+        if (!wall) return;
+        (wall.closest('tp-yt-paper-dialog') || wall).remove();
+        for (const b of document.querySelectorAll('tp-yt-iron-overlay-backdrop')) b.remove();
+        const v = document.querySelector('video.html5-main-video');
+        if (v && v.paused) v.play().catch(() => {});
+        report('overlay', 'youtube-enforcement');
+      },
+    },
+    {
+      name: 'spotify',
+      domains: ['open.spotify.com'],
+      adActive() {
+        const title = (document.title || '').trim();
+        // Tracks are titled "Song • Artist"; ads are titled "Advertisement" or the advertiser.
+        if (/^(spotify\s*[-–—]\s*)?advertisement$/i.test(title)) return true;
+        if (anyMatch(['[data-testid="context-item-info-ad-subtitle"]', '[data-testid="ad-type-label"]', '[data-testid="now-playing-widget"] a[href*="/ad/"]'])) return true;
+        const widget = document.querySelector('[data-testid="now-playing-widget"]');
+        const label = widget ? `${widget.getAttribute('aria-label') || ''}` : '';
+        return /\badvertisement\b/i.test(label);
+      },
+    },
+    {
+      name: 'twitch',
+      domains: ['twitch.tv'],
+      adActive: () => anyMatch(['[data-a-target="video-ad-label"]', '[data-a-target="video-ad-countdown"]', '[data-test-selector="ad-banner-default-text"]']),
+    },
+  ];
+
+  const service = F.mediaAdGuard ? SERVICES.find((s) => onHost(s.domains)) : null;
+  if (service) {
+    const media = new Set();
+    const saved = new Map(); // element -> state before we touched it
+    let adOn = false;
+    const mute = (el) => {
+      if (!saved.has(el)) saved.set(el, { muted: el.muted, rate: el.playbackRate });
+      el.muted = true;
+    };
+    // Media elements created by script and never attached to the DOM (Spotify) are caught on play().
+    HTMLMediaElement.prototype.play = new Proxy(HTMLMediaElement.prototype.play, {
+      apply(target, el, args) {
+        media.add(el);
+        if (adOn) mute(el);
+        return apply(target, el, args);
+      },
+    });
+    const tick = () => {
+      for (const el of document.querySelectorAll('video, audio')) media.add(el);
+      let active = false;
+      try {
+        active = service.adActive();
+      } catch (e) {
+        active = false;
+      }
+      if (active) {
+        if (!adOn) {
+          adOn = true;
+          report('mediaAd', service.name);
+        }
+        for (const el of media) {
+          mute(el);
+          if (service.fastForward && service.fastForward(el)) {
+            try {
+              el.playbackRate = 16;
+              if (Number.isFinite(el.duration) && el.duration > 0 && el.currentTime < el.duration - 0.3) el.currentTime = el.duration - 0.1;
+            } catch (e) {
+              /* not seekable */
+            }
+          }
+        }
+        for (const sel of service.skip || []) for (const b of document.querySelectorAll(sel)) b.click();
+      } else if (adOn) {
+        adOn = false;
+        for (const [el, st] of saved) {
+          try {
+            el.muted = st.muted;
+            el.playbackRate = st.rate;
+          } catch (e) {
+            /* element gone */
+          }
+        }
+        saved.clear();
+      }
+      if (service.cleanup) {
+        try {
+          service.cleanup();
+        } catch (e) {
+          /* ignore */
+        }
+      }
+    };
+    setInterval(tick, 250);
+  }
 })(__SG_FEATURES__);

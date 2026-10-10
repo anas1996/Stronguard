@@ -597,11 +597,39 @@ function noXhrIf(propsToMatch) {
   });
 }
 
+function sgSplitPath(p) {
+  return p.split('.').flatMap((s) => (s.endsWith('[]') && s !== '[]' ? [s.slice(0, -2), '[]'] : [s]));
+}
+
+function sgHasPath(o, parts) {
+  if (parts.length === 0) return true;
+  if (o === null || typeof o !== 'object') return false;
+  const [head, ...rest] = parts;
+  if (head === '[]' || head === '*' || head === '[-]') return Object.keys(o).some((k) => sgHasPath(o[k], rest));
+  return Object.prototype.hasOwnProperty.call(o, head) && sgHasPath(o[head], rest);
+}
+
+function sgHasPaths(obj, paths) {
+  return paths.every((p) => sgHasPath(obj, sgSplitPath(p)));
+}
+
+// Removes every path; "a.[].b" visits all entries, "a.[-].b.c" removes the
+// entries of array "a" in which "b.c" exists.
 function sgPrunePaths(obj, paths) {
   let changed = false;
   const prune = function (o, parts) {
     if (o === null || typeof o !== 'object') return;
     const [head, ...rest] = parts;
+    if (head === '[-]') {
+      if (!Array.isArray(o)) return;
+      for (let i = o.length - 1; i >= 0; i--) {
+        if (sgHasPath(o[i], rest)) {
+          o.splice(i, 1);
+          changed = true;
+        }
+      }
+      return;
+    }
     const keys = head === '[]' || head === '*' ? Object.keys(o) : [head];
     for (const k of keys) {
       if (!Object.prototype.hasOwnProperty.call(o, k)) continue;
@@ -611,28 +639,136 @@ function sgPrunePaths(obj, paths) {
       } else prune(o[k], rest);
     }
   };
-  for (const p of paths) prune(obj, p.split('.').flatMap((s) => (s.endsWith('[]') && s !== '[]' ? [s.slice(0, -2), '[]'] : [s])));
+  for (const p of paths) prune(obj, sgSplitPath(p));
   return changed;
 }
 
-function sgHasPaths(obj, paths) {
-  const has = function (o, parts) {
-    if (parts.length === 0) return true;
-    if (o === null || typeof o !== 'object') return false;
-    const [head, ...rest] = parts;
-    if (head === '[]' || head === '*') return Object.keys(o).some((k) => has(o[k], rest));
-    return Object.prototype.hasOwnProperty.call(o, head) && has(o[head], rest);
+// Returns obj => changed, honouring the "required paths" argument.
+function sgJsonPruner(propsToRemove, requiredProps) {
+  const remove = String(propsToRemove || '').split(/\s+/).filter(Boolean);
+  const required = String(requiredProps || '').split(/\s+/).filter(Boolean);
+  return function (obj) {
+    if (!remove.length || obj === null || typeof obj !== 'object') return false;
+    if (required.length && !sgHasPaths(obj, required)) return false;
+    return sgPrunePaths(obj, remove);
   };
-  return paths.every((p) => has(obj, p.split('.')));
+}
+
+// Trailing scriptlet arguments given as name/value pairs (e.g. propsToMatch, /player/).
+function sgNamedArgs(list) {
+  const out = {};
+  for (let i = 0; i + 1 < list.length; i += 2) out[list[i]] = list[i + 1];
+  return out;
+}
+
+function sgReplacePattern(pattern) {
+  const m = /^\/(.+)\/([dgimsuy]*)$/s.exec(pattern);
+  if (m) {
+    try {
+      return new RegExp(m[1], m[2]);
+    } catch (e) {
+      /* fall through to a literal */
+    }
+  }
+  return new RegExp(String(pattern).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+}
+
+// Rewrites the text of fetch() responses whose request matches.
+function sgFetchResponseFilter(match, transform) {
+  if (typeof fetch !== 'function') return;
+  window.fetch = new Proxy(window.fetch, {
+    apply: function (target, thisArg, args) {
+      let props = null;
+      try {
+        const input = args[0];
+        const init = args[1] || {};
+        props = {
+          url: input instanceof Request ? input.url : String(input),
+          method: String(init.method || (input instanceof Request ? input.method : 'GET')).toUpperCase(),
+        };
+      } catch (e) {
+        props = null;
+      }
+      const pending = Reflect.apply(target, thisArg, args);
+      if (!props || !match(props)) return pending;
+      return pending.then(function (res) {
+        return res.clone().text().then(function (text) {
+          const out = transform(text);
+          if (out === text) return res;
+          const copy = new Response(out, { status: res.status, statusText: res.statusText, headers: res.headers });
+          try {
+            Object.defineProperties(copy, { url: { value: res.url }, type: { value: res.type }, redirected: { value: res.redirected } });
+          } catch (e) {
+            /* ignore */
+          }
+          return copy;
+        }).catch(function () {
+          return res;
+        });
+      });
+    },
+  });
+}
+
+// Rewrites XMLHttpRequest responses (responseText / response) whose request matches.
+function sgXhrResponseFilter(match, transform) {
+  const proto = XMLHttpRequest.prototype;
+  const info = new WeakMap();
+  proto.open = new Proxy(proto.open, {
+    apply: function (target, xhr, args) {
+      info.set(xhr, { method: String(args[0] || 'GET').toUpperCase(), url: String(args[1]), result: null });
+      return Reflect.apply(target, xhr, args);
+    },
+  });
+  const textDesc = Object.getOwnPropertyDescriptor(proto, 'responseText');
+  const respDesc = Object.getOwnPropertyDescriptor(proto, 'response');
+  const filtered = function (xhr) {
+    const i = info.get(xhr);
+    if (!i || xhr.readyState !== 4) return null;
+    if (i.result !== null) return i.result;
+    i.result = false;
+    const type = xhr.responseType;
+    if (!match({ url: i.url, method: i.method }) || (type !== '' && type !== 'text' && type !== 'json')) return false;
+    let text;
+    if (type === 'json') {
+      const r = respDesc.get.call(xhr);
+      text = r === null || r === undefined ? '' : JSON.stringify(r);
+    } else {
+      text = textDesc.get.call(xhr);
+    }
+    const out = transform(text);
+    if (out !== text) i.result = { text: out, type };
+    return i.result;
+  };
+  Object.defineProperty(proto, 'responseText', {
+    ...textDesc,
+    get: function () {
+      const f = filtered(this);
+      return f ? f.text : textDesc.get.call(this);
+    },
+  });
+  Object.defineProperty(proto, 'response', {
+    ...respDesc,
+    get: function () {
+      const f = filtered(this);
+      if (!f) return respDesc.get.call(this);
+      if (f.type === 'json') {
+        try {
+          return JSON.parse(f.text);
+        } catch (e) {
+          return null;
+        }
+      }
+      return f.text;
+    },
+  });
 }
 
 function jsonPrune(propsToRemove, requiredProps) {
   if (!propsToRemove) return;
-  const remove = propsToRemove.split(/\s+/).filter(Boolean);
-  const required = (requiredProps || '').split(/\s+/).filter(Boolean);
+  const prune = sgJsonPruner(propsToRemove, requiredProps);
   const apply = function (obj) {
-    if (required.length && !sgHasPaths(obj, required)) return obj;
-    sgPrunePaths(obj, remove);
+    prune(obj);
     return obj;
   };
   JSON.parse = new Proxy(JSON.parse, {
@@ -647,6 +783,49 @@ function jsonPrune(propsToRemove, requiredProps) {
       },
     });
   }
+}
+
+function sgJsonTextPruner(propsToRemove, requiredProps) {
+  const prune = sgJsonPruner(propsToRemove, requiredProps);
+  return function (text) {
+    let obj;
+    try {
+      obj = JSON.parse(text);
+    } catch (e) {
+      return text;
+    }
+    return prune(obj) ? JSON.stringify(obj) : text;
+  };
+}
+
+function jsonPruneFetchResponse(propsToRemove, requiredProps, ...rest) {
+  if (!propsToRemove) return;
+  const named = sgNamedArgs(rest);
+  sgFetchResponseFilter(sgPropsMatcher(named.propsToMatch || ''), sgJsonTextPruner(propsToRemove, requiredProps));
+}
+
+function jsonPruneXhrResponse(propsToRemove, requiredProps, ...rest) {
+  if (!propsToRemove) return;
+  const named = sgNamedArgs(rest);
+  sgXhrResponseFilter(sgPropsMatcher(named.propsToMatch || ''), sgJsonTextPruner(propsToRemove, requiredProps));
+}
+
+function replaceFetchResponse(pattern, replacement, propsToMatch) {
+  if (!pattern) return;
+  const re = sgReplacePattern(pattern);
+  const rep = replacement === undefined ? '' : replacement;
+  sgFetchResponseFilter(sgPropsMatcher(propsToMatch || ''), function (text) {
+    return text.replace(re, rep);
+  });
+}
+
+function replaceXhrResponse(pattern, replacement, propsToMatch) {
+  if (!pattern) return;
+  const re = sgReplacePattern(pattern);
+  const rep = replacement === undefined ? '' : replacement;
+  sgXhrResponseFilter(sgPropsMatcher(propsToMatch || ''), function (text) {
+    return text.replace(re, rep);
+  });
 }
 
 function nowebrtc() {
@@ -968,8 +1147,16 @@ const EXTRA_HELPERS = {
   sgTimerBooster,
   sgEachMatch,
   sgPropsMatcher,
+  sgSplitPath,
+  sgHasPath,
   sgPrunePaths,
   sgHasPaths,
+  sgJsonPruner,
+  sgJsonTextPruner,
+  sgNamedArgs,
+  sgReplacePattern,
+  sgFetchResponseFilter,
+  sgXhrResponseFilter,
   sgSetCookie,
   sgGetCookie,
   sgStorageItem,
@@ -997,6 +1184,10 @@ export const SCRIPTLETS = {
   'no-fetch-if': noFetchIf,
   'no-xhr-if': noXhrIf,
   'json-prune': jsonPrune,
+  'json-prune-fetch-response': jsonPruneFetchResponse,
+  'json-prune-xhr-response': jsonPruneXhrResponse,
+  'replace-fetch-response': replaceFetchResponse,
+  'replace-xhr-response': replaceXhrResponse,
   nowebrtc,
   noeval,
   'noeval-if': noevalIf,

@@ -26,11 +26,27 @@ Stronguard blocks ads, popups and trackers in several independent layers. Each l
 
 The browser extension works on its own. The network layers protect the whole PC, and optionally your whole home network. With the network shield installed, moving the level slider in the extension, the dashboard or the CLI updates every layer.
 
+## YouTube, Spotify and other services
+
+Big services serve ads from their own servers, mixed in with the content, so blocking ad domains isn't enough. Stronguard handles them in the browser and, for Spotify, on the Windows desktop:
+
+| Service | In the browser (extension) | Desktop app / TV / phone (network layers) |
+|---|---|---|
+| **YouTube** (incl. Music, Kids, Shorts) | Ad slots are stripped from the player's data before it starts, using uBlock Origin's maintained rules, so fixes arrive with every list update. If an ad still starts, Stronguard mutes it, fast-forwards it to the end and presses Skip, then restores your volume and speed. Feed, search and banner ads are hidden, and the "ad blockers are not allowed" wall is removed. | Not possible. YouTube's apps get ads from the same servers as the videos, so no DNS blocker can remove them without blocking YouTube. |
+| **Spotify** | Web player (open.spotify.com): audio ads are muted and sound returns when the music does. Banners are hidden. | **Desktop app on Windows**: a small helper mutes only Spotify in the volume mixer while an ad plays (installed by default). Ad trackers are blocked by DNS. Mobile app audio ads can't be removed by the network. |
+| **Twitch** | Ads are muted while they play; ad trackers are blocked. | Ad trackers blocked. |
+| **Facebook, Instagram, X, Reddit, LinkedIn** | Sponsored posts hidden by the AdGuard and uBlock lists. | Trackers blocked. |
+| **Google Search, Amazon, news sites…** | Covered by the regular lists, cosmetic filtering and scriptlets. | Ad servers blocked. |
+
+**Spotify on Windows, how it works:** while music plays, Spotify's window title is "Artist - Song". During an ad it changes to "Advertisement", "Spotify" or the advertiser's name. The helper watches the title and toggles mute for Spotify's audio session only, the same technique as the long-standing EZBlocker. Spotify itself is never modified.
+
+For the best results with Spotify, use the web player at open.spotify.com with the extension, or the desktop app with the network shield installed.
+
 ## Protection levels
 
 | Level | Name | What it adds |
 |---|---|---|
-| 1 | **Relaxed** | EasyList, EasyPrivacy, uBlock lists · element hiding + anti-adblock scriptlets · popups without a click blocked · known popup/malvertising networks blocked as pages and their tabs auto-closed · DNS core lists + CNAME uncloaking · browser popup/intrusive-ad policies |
+| 1 | **Relaxed** | EasyList, EasyPrivacy, uBlock lists · element hiding + anti-adblock scriptlets · YouTube ad stripping/skipping, Spotify & Twitch ad muting · popups without a click blocked · known popup/malvertising networks blocked as pages and their tabs auto-closed · DNS core lists + CNAME uncloaking · browser popup/intrusive-ad policies |
 | 2 | **Standard** | Popup-ad lists (AdGuard Popups, HaGeZi pop-up ads) · one popup per click · notification prompts denied · tracking parameters (`utm_*`, `fbclid`, `gclid`…) stripped · back-button hijacking blocked · DNS: StevenBlack + threat intelligence |
 | 3 | **Aggressive** *(default)* | Annoyance lists · fullscreen overlays and "disable your adblocker" walls removed, scrolling restored · invisible click-hijacking layers removed · ad-server domains blocked even as pages · DNS: HaGeZi Pro, Firefox/iCloud bypass canaries · firewall blocks DNS-over-TLS · browsers forced onto system DNS |
 | 4 | **Hardcore** | Cookie-banner lists · cross-site popups only from a real link/button · tab-unders reverted · "leave site?" traps and dialog loops blocked · ad-sized iframes and sticky ad bars hidden · tracker domains blocked as pages, third-party beacons blocked · DNS: HaGeZi Pro++, DoH bypass endpoints · firewall forces all DNS through Stronguard and blocks public DoH resolvers · notifications blocked by policy |
@@ -64,6 +80,7 @@ The installer asks for nothing. It prints what it does and opens the dashboard a
 | `-WindowsAds` | Also turn off Windows' own ads: Start/lock-screen suggestions, advertising ID, Explorer promos, consumer "experiences" |
 | `-Hosts` | Also write a capped hosts-file fallback (20k highest-priority domains; Windows slows down with bigger hosts files) |
 | `-ServeLan` | Let phones, TVs and other devices use this PC as their DNS (see below) |
+| `-NoSpotifyMuter` | Don't install the Spotify desktop ad muter |
 | `-NoDns` / `-NoFirewall` / `-NoBrowserPolicies` / `-NoProxy` | Skip a layer |
 
 Run the installer again at any time to change options. **To remove everything** and restore your previous DNS, firewall, policy, proxy and hosts settings:
@@ -117,10 +134,11 @@ stronguard firewall | policies | hosts | pac   print what Stronguard generates
 - **Network rules**: filter lists are compiled at build time into `declarativeNetRequest` rulesets, one set per level, switched on and off by the slider. Hostname rules are merged into large `requestDomains` rules, so about 263k domains fit in about 28k rules, under Chrome's guaranteed 30k. Supported: `$third-party`, `$domain`, `$to`, `$denyallow`, `$method`, `$important`, `$redirect` (to bundled neutered resources such as GPT/adsbygoogle/GA stubs and empty VAST), `$removeparam`, `$csp`, `$popup`, `$document`, `$badfilter`, `$generichide` and more.
 - **Top-level blocking**: known popup and malvertising domains (all ad domains from level 3, trackers from level 4) redirect to a Stronguard *blocked* page. If such a page opened as a popup, the tab is closed automatically. The page offers "Allow once" and "Always allow".
 - **Cosmetic filtering**: generic rules are matched against the class and id names present in the DOM, so only relevant CSS is injected. Site-specific rules are loaded from a sharded database. CSS is injected with *user* origin, so pages can't override it. Procedural filters (`:has-text`, `:upward`, `:xpath`, `:matches-css`, `:remove()`, `:style()`…) run in the page.
-- **Scriptlets**: about 36 anti-adblock and anti-popup scriptlets (`set`, `aopr`, `acs`, `nowoif`, `json-prune`, `no-fetch-if`, cookie-banner `click-element`, etc.), compiled per site and level and registered only on the sites that need them.
+- **Scriptlets**: 40 anti-adblock, anti-popup and response-rewriting scriptlets (`set`, `aopr`, `acs`, `nowoif`, `json-prune`, `json-prune-fetch-response`, `trusted-replace-xhr-response`, `no-fetch-if`, cookie-banner `click-element`, etc.), compiled per site and level and registered only on the sites that need them.
 - **Popup guard** (runs before any page script): blocks `window.open` without a user gesture; allows one popup per click; requires a real link or button for cross-site popups (level 4) or blocks them all except sign-in and payment providers (level 5). It also covers synthetic link clicks and fresh iframe windows, denies notification permission prompts, and blocks back-button hijacks, `beforeunload` traps and dialog loops.
 - **Tab-under reversal**: if a page opens a new tab and immediately sends the original tab to another site, the original tab is sent back.
-- **Heuristics**: removes overlay and ad-block walls and restores scrolling. Intercepts and removes invisible click-hijacking layers. Hides ad-sized cross-site iframes and sticky ad bars, and at level 5 "Sponsored"/"Advertisement" blocks.
+- **Media ad guard**: on YouTube, the Spotify web player and Twitch, detects an ad that is playing and mutes it, or on YouTube fast-forwards and skips it, then restores your settings.
+- **Heuristics** (skipped on large first-party apps such as YouTube, Google and social networks): removes overlay and ad-block walls and restores scrolling. Intercepts and removes invisible click-hijacking layers. Hides ad-sized cross-site iframes and sticky ad bars, and at level 5 "Sponsored"/"Advertisement" blocks.
 - **Your filters, extra lists and the element picker** compile at runtime into dynamic rules, using the same engine.
 
 ### DNS sinkhole
@@ -151,7 +169,7 @@ Writes registry policies for Chrome, Edge, Brave and Firefox: native popup block
 ## Good to know
 
 - **Your browser extension and the DNS shield are complementary.** DNS can't block ads served from the site's own domain, such as YouTube or Facebook feed ads, or remove empty boxes and popups. The extension can't protect other apps or devices.
-- **Video ads on YouTube** are an arms race. The bundled uBlock and AdGuard rules cover what Manifest V3 allows, but they won't always win.
+- **YouTube is an arms race.** Stronguard runs uBlock Origin's maintained YouTube rules and has its own skip-and-mute fallback, but YouTube changes often. Rebuild the extension (`npm run build`) to pick up the latest rules. Ads in YouTube's TV and phone apps can't be blocked by any network filter.
 - **If the service stops, DNS stops.** That is the price of not letting traffic bypass it. The scheduled task restarts it within a minute. If you ever need to, run `windows\uninstall.ps1`, or set your adapter's DNS back to automatic.
 - **Port 53 in use?** Internet Connection Sharing or Hyper-V can hold it. The installer reports which process owns it.
 - **Filter list licences**: lists are downloaded from their authors at build or run time (EasyList, uBlock Origin, AdGuard, HaGeZi, StevenBlack, OISD, Peter Lowe), mostly under GPLv3 or CC BY-SA. Keep that in mind if you redistribute a built extension.
@@ -174,7 +192,7 @@ core/                 shared filter engine: parser, domain matcher, DNR + cosmet
 extension/            MV3 extension source: background/, content/ (guard, isolated, picker), scriptlets/, ui/, resources/
 filters/              Stronguard's own lists (always available offline)
 network/              network shield: dns/, proxy/, dashboard/, windows/ generators, engine, CLI (bin/stronguard.js)
-windows/              install.ps1, uninstall.ps1, stronguard.cmd
+windows/              install.ps1, uninstall.ps1, spotify-muter.ps1, stronguard.cmd
 scripts/build.js      extension build (lists → rulesets, cosmetic shards, scriptlet bundles, icons, manifests, zips)
 test/                 node:test suites + e2e/extension.e2e.js
 ```
