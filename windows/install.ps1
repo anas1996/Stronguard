@@ -213,7 +213,7 @@ if (-not $NoProxy) {
 # --- Hosts file ----------------------------------------------------------------
 if ($Hosts) {
   Write-Step 'Writing hosts-file fallback'
-  Invoke-Stronguard hosts --install --max 100000 | ForEach-Object { Write-Ok $_ }
+  Invoke-Stronguard hosts --install --max 20000 | ForEach-Object { Write-Ok $_ }
 }
 
 # --- Done ----------------------------------------------------------------------

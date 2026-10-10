@@ -62,7 +62,7 @@ The installer asks for nothing. It prints what it does and opens the dashboard a
 |---|---|
 | `-Level 1..5` | Starting level (default 3) |
 | `-WindowsAds` | Also turn off Windows' own ads: Start/lock-screen suggestions, advertising ID, Explorer promos, consumer "experiences" |
-| `-Hosts` | Also write a capped hosts-file fallback (up to 100k domains) |
+| `-Hosts` | Also write a capped hosts-file fallback (20k highest-priority domains; Windows slows down with bigger hosts files) |
 | `-ServeLan` | Let phones, TVs and other devices use this PC as their DNS (see below) |
 | `-NoDns` / `-NoFirewall` / `-NoBrowserPolicies` / `-NoProxy` | Skip a layer |
 

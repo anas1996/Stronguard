@@ -33,7 +33,16 @@ function Invoke-Generated {
   Invoke-Expression $script
 }
 
-# Restore DNS first so the PC is never left without a resolver.
+$failures = @()
+
+# A large hosts block makes every DNS client reload slow, so remove it first.
+Write-Step 'Cleaning the hosts file'
+if ($NodeExe) {
+  & $NodeExe $Cli hosts --uninstall --data $DataDir | ForEach-Object { Write-Ok $_ }
+  if ($LASTEXITCODE -ne 0) { $failures += 'hosts file' }
+}
+
+# Restore DNS before stopping the service so the PC is never left without a resolver.
 Write-Step 'Restoring DNS servers'
 $backupFile = Join-Path $DataDir 'dns-backup.json'
 $restored = @{}
@@ -86,13 +95,15 @@ if ($current -eq 'http://127.0.0.1:8118/proxy.pac') {
 }
 Write-Ok 'Proxy settings restored'
 
-Write-Step 'Cleaning the hosts file'
-if ($NodeExe) { & $NodeExe $Cli hosts --uninstall --data $DataDir | ForEach-Object { Write-Ok $_ } }
-
 if (-not $KeepData) {
   Write-Step 'Deleting Stronguard data'
   Remove-Item -Path $DataDir -Recurse -Force -ErrorAction SilentlyContinue
   Write-Ok "$DataDir removed"
 }
 
+if ($failures.Count) {
+  Write-Warning ("Stronguard was removed, but these steps need attention: " + ($failures -join ', '))
+  exit 1
+}
 Write-Step 'Stronguard network shield removed. Restart your browsers.'
+exit 0

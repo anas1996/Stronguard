@@ -40,7 +40,7 @@ Setup / Windows integration
   firewall                Print Windows Firewall rules (PowerShell) [--remove] [--serve-lan]
   policies                Print browser/Windows hardening policies (PowerShell)
                             [--scope machine|user] [--remove] [--windows-ads] [--no-dns]
-  hosts                   Print a hosts-file block [--install | --uninstall] [--max N]
+  hosts                   Print a hosts-file block [--install | --uninstall] [--max N, default 20000]
   pac                     Print the proxy auto-config file
 
 Options
@@ -91,6 +91,19 @@ async function dashboardCall(config, pathname, body) {
     ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(3000) }
     : { signal: AbortSignal.timeout(3000) });
   return res.json();
+}
+
+// The Windows DNS Client service briefly locks the hosts file while reading it.
+async function writeWithRetry(file, text) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await fs.writeFile(file, text);
+      return;
+    } catch (err) {
+      if (!['EBUSY', 'EPERM', 'EACCES'].includes(err.code) || attempt >= 20) throw err;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
 }
 
 async function loadEngine(config) {
@@ -235,14 +248,15 @@ async function main() {
       const file = typeof opts.file === 'string' ? opts.file : hostsPath();
       if (opts.uninstall) {
         const text = await fs.readFile(file, 'utf8');
-        await fs.writeFile(file, stripBlock(text));
+        if (text.includes('Stronguard')) await writeWithRetry(file, stripBlock(text));
         console.log(`Stronguard entries removed from ${file}`);
         break;
       }
       const config = await store.load();
       if (opts.level) config.level = clampLevel(opts.level);
       const engine = await loadEngine(config);
-      const domains = selectDomains(engine, Number(opts.max) || 100000);
+      // Windows' DNS Client slows down noticeably with very large hosts files.
+      const domains = selectDomains(engine, Number(opts.max) || 20000);
       if (opts.install) {
         let text = '';
         try {
@@ -251,7 +265,7 @@ async function main() {
           text = '';
         }
         await fs.writeFile(`${file}.stronguard.bak`, text).catch(() => {});
-        await fs.writeFile(file, mergeHosts(text, domains));
+        await writeWithRetry(file, mergeHosts(text, domains));
         console.log(`${domains.length.toLocaleString()} domains written to ${file}`);
       } else {
         process.stdout.write(mergeHosts('', domains));

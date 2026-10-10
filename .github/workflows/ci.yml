@@ -11,8 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - name: Unit and network tests
@@ -34,8 +34,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - name: Unit tests
@@ -86,6 +86,7 @@ jobs:
         shell: powershell
         run: .\windows\uninstall.ps1
       - name: Verify clean uninstall
+        if: always()
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'

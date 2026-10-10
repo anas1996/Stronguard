@@ -161,6 +161,6 @@ export function firewallScript(config, level, { remove = false, serveLan = false
       }));
     }
   }
-  lines.push("Write-Host ('Stronguard firewall rules applied: ' + @(Get-NetFirewallRule -Group $group).Count)");
+  lines.push("Write-Host ('Stronguard firewall rules applied: ' + @(Get-NetFirewallRule -Group $group -ErrorAction SilentlyContinue).Count)");
   return `${lines.join('\r\n')}\r\n`;
 }
