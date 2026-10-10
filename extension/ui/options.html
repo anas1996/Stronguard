@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stronguard settings</title>
+    <link rel="stylesheet" href="common.css" />
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <img src="../icons/on-48.png" alt="" width="36" height="36" />
+        <div>
+          <h1>Stronguard</h1>
+          <div class="muted" id="buildLine"></div>
+        </div>
+      </header>
+
+      <div id="warn" class="warn" hidden></div>
+
+      <section class="card">
+        <h2>Protection level</h2>
+        <p class="muted">One slider for every layer. Higher levels block more and may break some sites; allowlist those.</p>
+        <div class="row">
+          <label class="switch"><input type="checkbox" id="enabled" /><span></span></label>
+          <span>Protection enabled</span>
+          <span class="spacer"></span>
+          <span id="levelName" class="pill"></span>
+        </div>
+        <input type="range" id="level" class="slider" min="1" max="5" step="1" aria-label="Protection level" />
+        <div class="ticks"><span>1 Relaxed</span><span>2 Standard</span><span>3 Aggressive</span><span>4 Hardcore</span><span>5 Nuclear</span></div>
+        <div id="levelTable" class="levels"></div>
+      </section>
+
+      <section class="card">
+        <h2>Allowlist</h2>
+        <p class="muted">Sites where Stronguard is completely off (one per line). Subdomains are included.</p>
+        <textarea id="allowlist" spellcheck="false" placeholder="example.com"></textarea>
+        <div class="actions"><button data-save="allowlist">Save allowlist</button></div>
+      </section>
+
+      <section class="card">
+        <h2>My filters</h2>
+        <p class="muted">
+          Adblock Plus / uBlock syntax. Examples: <code>||ads.example.com^</code>, <code>example.com##.banner</code>,
+          <code>example.com##.post:has-text(Sponsored)</code>, <code>@@||cdn.example.com^</code>. Elements you pick are added here.
+        </p>
+        <textarea id="customFilters" spellcheck="false" class="tall"></textarea>
+        <div class="actions"><button data-save="customFilters">Apply filters</button><span id="filterStats" class="muted"></span></div>
+      </section>
+
+      <section class="card">
+        <h2>Extra filter lists</h2>
+        <p class="muted">Any Adblock/uBlock/hosts list URL, one per line. Updated daily and compiled into this browser's dynamic rules.</p>
+        <textarea id="extraLists" spellcheck="false" placeholder="https://example.org/list.txt"></textarea>
+        <div class="actions">
+          <button data-save="extraLists">Save lists</button>
+          <button id="updateLists" class="ghost">Update now</button>
+        </div>
+        <ul id="extraStatus" class="muted small"></ul>
+      </section>
+
+      <section class="card">
+        <h2>Built-in filter lists</h2>
+        <p class="muted">Compiled when the extension was built. Rebuild to refresh (<code>npm run build</code>).</p>
+        <table id="lists"></table>
+      </section>
+
+      <section class="card">
+        <h2>Network shield</h2>
+        <p class="muted">The Stronguard DNS/proxy service protects every app and device. The extension can show its status and keep its level in sync.</p>
+        <label class="field">Dashboard URL <input type="url" id="shieldUrl" /></label>
+        <label class="row"><input type="checkbox" id="shieldSync" /> Keep the network shield level in sync with this slider</label>
+        <label class="row"><input type="checkbox" id="badge" /> Show blocked-request count on the toolbar icon</label>
+        <div class="actions"><button data-save="network">Save</button><span id="shieldState" class="muted"></span></div>
+      </section>
+
+      <section class="card">
+        <h2>Statistics &amp; backup</h2>
+        <div id="stats" class="statgrid"></div>
+        <div class="actions">
+          <button id="export" class="ghost">Export settings</button>
+          <button id="import" class="ghost">Import settings</button>
+          <button id="resetStats" class="ghost">Reset statistics</button>
+          <input type="file" id="importFile" accept="application/json" hidden />
+        </div>
+      </section>
+      <div id="toast" class="toast" hidden></div>
+    </main>
+    <script src="options.js" type="module"></script>
+  </body>
+</html>

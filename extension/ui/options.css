@@ -1,0 +1,178 @@
+main {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 24px;
+}
+
+h2 {
+  margin: 0 0 4px;
+  font-size: 17px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+
+.card > p {
+  margin: 0 0 10px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.field {
+  display: block;
+  margin: 6px 0 10px;
+}
+
+.field input {
+  margin-top: 4px;
+}
+
+textarea.tall {
+  min-height: 260px;
+}
+
+code {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 5px;
+  font-size: 12px;
+}
+
+.small {
+  font-size: 12px;
+}
+
+.levels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.lvl {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  font-size: 12px;
+  opacity: 0.55;
+}
+
+.lvl.on {
+  opacity: 1;
+  border-color: var(--c);
+}
+
+.lvl b {
+  display: block;
+  color: var(--c);
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.lvl ul {
+  margin: 0;
+  padding-left: 16px;
+  overflow-wrap: anywhere;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+th {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+td.ok {
+  color: var(--ok);
+}
+
+td.bad {
+  color: var(--warn);
+}
+
+.statgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.statgrid div {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.statgrid b {
+  display: block;
+  font-size: 20px;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  background: var(--ok);
+  color: #04160e;
+  font-weight: 700;
+  padding: 10px 16px;
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+}
+
+@media (max-width: 600px) {
+  .card {
+    padding: 12px;
+  }
+  table {
+    font-size: 12px;
+  }
+}

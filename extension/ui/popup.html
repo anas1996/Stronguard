@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Stronguard</title>
+    <link rel="stylesheet" href="common.css" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <img src="../icons/on-32.png" alt="" width="22" height="22" id="logo" />
+      <strong>Stronguard</strong>
+      <label class="switch" title="Turn all protection on or off">
+        <input type="checkbox" id="power" />
+        <span></span>
+      </label>
+    </header>
+
+    <section class="card site">
+      <div class="site-text">
+        <div class="muted small">Protection on this site</div>
+        <div id="host" class="host">—</div>
+      </div>
+      <label class="switch" title="Allowlist this site">
+        <input type="checkbox" id="siteToggle" />
+        <span></span>
+      </label>
+    </section>
+
+    <section class="card">
+      <div class="row">
+        <span class="muted small">Protection level</span>
+        <span id="levelName" class="pill">Aggressive</span>
+      </div>
+      <input type="range" id="level" class="slider" min="1" max="5" step="1" aria-label="Protection level" />
+      <div class="ticks"><span>Relaxed</span><span>Standard</span><span>Aggressive</span><span>Hardcore</span><span>Nuclear</span></div>
+      <p id="tagline" class="tagline"></p>
+      <details>
+        <summary>What this level adds</summary>
+        <ul id="adds"></ul>
+      </details>
+      <button id="reload" class="ghost wide" hidden>Reload page to apply</button>
+    </section>
+
+    <section class="stats">
+      <div class="stat"><b id="sReq">–</b><span>requests blocked on this page</span></div>
+      <div class="stat"><b id="sPop">0</b><span>popups &amp; popup tabs stopped</span></div>
+      <div class="stat"><b id="sHid">0</b><span>overlays &amp; elements removed</span></div>
+    </section>
+    <div id="totals" class="totals muted small"></div>
+
+    <section id="shield" class="shield small">
+      <span class="dot"></span><span id="shieldText">Network shield: checking…</span>
+    </section>
+
+    <div id="warn" class="warn" hidden></div>
+
+    <footer>
+      <button id="pick">Pick element to hide</button>
+      <button id="options" class="ghost">Settings</button>
+    </footer>
+    <script src="popup.js" type="module"></script>
+  </body>
+</html>

@@ -1,0 +1,31 @@
+[Adblock Plus 2.0]
+! Title: Stronguard Privacy
+! Description: Strip click/campaign tracking parameters from links (level 2+).
+! Expires: 7 days
+!
+$removeparam=utm_source
+$removeparam=utm_medium
+$removeparam=utm_campaign
+$removeparam=utm_term
+$removeparam=utm_content
+$removeparam=utm_id
+$removeparam=utm_name
+$removeparam=fbclid
+$removeparam=gclid
+$removeparam=dclid
+$removeparam=gbraid
+$removeparam=wbraid
+$removeparam=msclkid
+$removeparam=yclid
+$removeparam=igshid
+$removeparam=mc_eid
+$removeparam=_hsenc
+$removeparam=_hsmi
+$removeparam=mkt_tok
+$removeparam=oly_anon_id
+$removeparam=oly_enc_id
+$removeparam=vero_id
+$removeparam=ttclid
+$removeparam=twclid
+$removeparam=li_fat_id
+$removeparam=s_cid
